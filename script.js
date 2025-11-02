@@ -231,7 +231,7 @@ if (nose && leftIris && rightIris) {
   const V_GAIN = 2.0;
 
   // raise / lower neutral vertical
-  const V_NEUTRAL = 0.10;   // you can keep tweaking this
+  const V_NEUTRAL = 0.01;   // you can keep tweaking this
 
   // shift dot a bit to the RIGHT (it was slightly left)
   const X_OFFSET = 25;      // px → make 15–35 to taste
