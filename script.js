@@ -1,128 +1,130 @@
-// =====================================================
-// Hybrid Eye-Gaze Tracker v2.0
-// - WebGazer for smooth gaze-based cursor motion
-// - TensorFlow FaceMesh for blink detection + overlay
-// =====================================================
-
 let model, video, canvas, ctx;
 let cursor, lastBlink = 0;
-let gazeX = 0, gazeY = 0; // from WebGazer
-let smoothX = 0, smoothY = 0;
 
-// ===== Initialize FaceMesh camera =====
 async function setupCamera() {
-  video = document.getElementById("video");
+  video = document.getElementById('video');
   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
   await new Promise(resolve => (video.onloadedmetadata = resolve));
 }
 
-// ===== Initialize TensorFlow FaceMesh + WebGazer =====
 async function init() {
-  cursor = document.getElementById("cursor");
+  cursor = document.getElementById('cursor');
   await setupCamera();
 
-  canvas = document.getElementById("overlay");
-  ctx = canvas.getContext("2d");
+  canvas = document.getElementById('overlay');
+  ctx = canvas.getContext('2d');
 
   resize();
-  window.addEventListener("resize", resize);
+  window.addEventListener('resize', resize);
 
-  // Load FaceMesh
+  // ✅ Load TensorFlow facemesh model
   model = await facemesh.load();
-  console.log("✅ FaceMesh model loaded");
-
-  // Load WebGazer
-  loadWebGazer();
-
   render();
 }
 
-// ===== Responsive canvas size =====
 function resize() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 }
 
-// ===== Initialize WebGazer (cursor motion only) =====
-function loadWebGazer() {
-  if (!window.webgazer) {
-    const s = document.createElement("script");
-    s.src = "https://webgazer.cs.brown.edu/webgazer.js";
-    document.head.appendChild(s);
-    s.onload = startWebGazer;
-  } else startWebGazer();
-}
-
-function startWebGazer() {
-  console.log("🎯 Initializing WebGazer...");
-  webgazer.setRegression("ridge")
-          .setTracker("clmtrackr")
-          .begin();
-
-  webgazer.showVideoPreview(false)
-          .showPredictionPoints(false)
-          .applyKalmanFilter(true);
-
-  webgazer.setGazeListener((data) => {
-    if (!data) return;
-    gazeX = data.x;
-    gazeY = data.y;
-  });
-
-  console.log("✅ WebGazer active: move your eyes to move the cursor.");
-}
-
-// ===== Main Render Loop =====
 async function render() {
-  const predictions = await model.estimateFaces(video);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  try {
+    const predictions = await model.estimateFaces(video);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // === Face tracking landmarks + blink detection ===
-  if (predictions.length > 0) {
+    if (predictions.length === 0) {
+      requestAnimationFrame(render);
+      return;
+    }
+
     const face = predictions[0];
     const keypoints = face.scaledMesh;
 
-    // Draw landmarks
-    ctx.fillStyle = "rgba(0,255,0,0.6)";
+    // 🟢 Draw mesh landmarks (optional visual guide)
+    ctx.fillStyle = 'rgba(0,255,0,0.5)';
     for (const [x, y] of keypoints) ctx.fillRect(x, y, 2, 2);
 
-    // Eye landmarks
-    const leftEyeUpper = keypoints[159];
-    const leftEyeLower = keypoints[145];
-    const rightEyeUpper = keypoints[386];
-    const rightEyeLower = keypoints[374];
-    const leftIrisCenter = keypoints[468] || leftEyeUpper;
-    const rightIrisCenter = keypoints[473] || rightEyeUpper;
+    // 🧠 Dual-eye gaze estimation (mirror mode, stable)
+    if (
+      face.annotations?.leftEyeUpper0 &&
+      face.annotations?.leftEyeLower0 &&
+      face.annotations?.rightEyeUpper0 &&
+      face.annotations?.rightEyeLower0
+    ) {
+      const le = face.annotations.leftEye;
+      const re = face.annotations.rightEye;
 
-    // Blink detection
-    const leftBlinkDist = Math.abs(leftEyeUpper[1] - leftEyeLower[1]);
-    const rightBlinkDist = Math.abs(rightEyeUpper[1] - rightEyeLower[1]);
-    const blink = leftBlinkDist < 2.5 && rightBlinkDist < 2.5;
+      // Outer/inner corners
+      const leOuter = le?.[0], leInner = le?.[3];
+      const reOuter = re?.[3], reInner = re?.[0];
 
-    // Blink feedback overlay
-    ctx.fillStyle = blink ? "rgba(255,0,0,0.6)" : "rgba(0,255,0,0.4)";
-    ctx.fillRect(leftIrisCenter[0] - 3, leftIrisCenter[1] - 3, 6, 6);
-    ctx.fillRect(rightIrisCenter[0] - 3, rightIrisCenter[1] - 3, 6, 6);
+      // Bail safely if missing data
+      if (!leOuter || !leInner || !reOuter || !reInner) throw new Error("Missing eye corners");
 
-    // Visual blink on cursor
-    if (blink && Date.now() - lastBlink > 500) {
-      lastBlink = Date.now();
-      cursor.style.background = "rgba(255,0,0,0.8)";
-      setTimeout(() => (cursor.style.background = "rgba(0,255,0,0.6)"), 200);
-      console.log("👁 Blink detected");
+      // Vertical midpoints
+      const leUpper = face.annotations.leftEyeUpper0?.[3];
+      const leLower = face.annotations.leftEyeLower0?.[3];
+      const reUpper = face.annotations.rightEyeUpper0?.[3];
+      const reLower = face.annotations.rightEyeLower0?.[3];
+      if (!leUpper || !leLower || !reUpper || !reLower) throw new Error("Missing eyelid points");
+
+      // Centers of each eye
+      const leCenter = [
+        (leOuter[0] + leInner[0]) / 2,
+        (leUpper[1] + leLower[1]) / 2
+      ];
+      const reCenter = [
+        (reOuter[0] + reInner[0]) / 2,
+        (reUpper[1] + reLower[1]) / 2
+      ];
+
+      // Average both eyes
+      const eyeCenterX = (leCenter[0] + reCenter[0]) / 2;
+      const eyeCenterY = (leCenter[1] + reCenter[1]) / 2;
+
+      // Normalize offsets
+      const eyeWidth =
+        (Math.abs(leOuter[0] - leInner[0]) + Math.abs(reOuter[0] - reInner[0])) / 2;
+      const eyeHeight =
+        (Math.abs(leUpper[1] - leLower[1]) + Math.abs(reUpper[1] - reLower[1])) / 2;
+
+      if (eyeWidth === 0 || eyeHeight === 0) throw new Error("Invalid eye geometry");
+
+      const offsetX =
+        (eyeCenterX - ((leInner[0] + reInner[0]) / 2)) / eyeWidth;
+      const offsetY =
+        (eyeCenterY - ((leUpper[1] + reUpper[1]) / 2)) / eyeHeight;
+
+      // Map to screen space
+      const gazeX = canvas.width / 2 - offsetX * canvas.width * 1.2;
+      const gazeY = canvas.height / 2 + offsetY * canvas.height * 1.2;
+
+      // Flip horizontally to match mirror effect
+      cursor.style.left = `${canvas.width - gazeX}px`;
+      cursor.style.top = `${gazeY}px`;
     }
+
+    // 👁 Blink detection (flashes red briefly)
+    if (face.annotations?.leftEyeUpper0 && face.annotations?.leftEyeLower0) {
+      const upper = face.annotations.leftEyeUpper0;
+      const lower = face.annotations.leftEyeLower0;
+      const eyeTopY = upper.reduce((a, p) => a + p[1], 0) / upper.length;
+      const eyeBottomY = lower.reduce((a, p) => a + p[1], 0) / lower.length;
+      const eyeDist = Math.abs(eyeTopY - eyeBottomY);
+
+      if (eyeDist < 2 && Date.now() - lastBlink > 500) {
+        lastBlink = Date.now();
+        cursor.style.background = 'rgba(255,0,0,0.8)';
+        setTimeout(() => (cursor.style.background = 'rgba(0,255,0,0.6)'), 200);
+      }
+    }
+  } catch (err) {
+    console.warn("Frame skipped:", err.message);
   }
-
-  // === Cursor position (WebGazer gaze) ===
-  const smoothing = 0.2;
-  smoothX += (gazeX - smoothX) * smoothing;
-  smoothY += (gazeY - smoothY) * smoothing;
-
-  cursor.style.left = `${smoothX}px`;
-  cursor.style.top = `${smoothY}px`;
 
   requestAnimationFrame(render);
 }
 
 init();
+
