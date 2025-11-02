@@ -1,13 +1,10 @@
 html, body {
   margin: 0;
-  padding: 0;
   overflow: hidden;
   height: 100%;
-  background-color: #000;
-  font-family: sans-serif;
+  background: black;
 }
 
-/* ✅ Mirror the camera feed horizontally */
 video, canvas {
   position: absolute;
   top: 0;
@@ -15,30 +12,22 @@ video, canvas {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);  /* ✅ Mirrors both video + canvas */
+  transform: scaleX(-1);  /* ✅ Mirror camera + overlay */
+  z-index: 0;
 }
 
-/* ✅ Mirror the overlay too so coordinates match */
 canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  transform: scaleX(-1); /* 👈 must match video flip */
   z-index: 1;
   pointer-events: none;
 }
 
-/* Cursor overlay (not mirrored, controlled in JS) */
 #cursor {
   position: absolute;
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background-color: rgba(0, 255, 0, 0.6);
+  background: rgba(0, 255, 0, 0.6);
   transform: translate(-50%, -50%);
   z-index: 2;
   pointer-events: none;
-  transition: background-color 0.3s ease;
 }
