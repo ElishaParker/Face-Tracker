@@ -1,5 +1,5 @@
 // =====================================================
-// Assistive Eye-Gaze Tracker (nose-anchored, no WG preview)
+// Assistive Eye-Gaze Tracker (nose-anchored, calibrated)
 // =====================================================
 
 let model, video, canvas, ctx;
@@ -15,6 +15,14 @@ let lastClick = 0;
 let mouthBaseline = null;
 let mouthSamples = [];
 let mouthReady = false;
+
+// ======= CALIBRATION KNOBS =======
+// positive X here = move DOT LEFT on screen (because we mirror)
+// positive Y here = move DOT DOWN on screen
+const CALIBRATION_X = 0.12;   // 12% of canvas width
+const CALIBRATION_Y = 0.16;   // 16% of canvas height
+// push dot “off the face” a bit (as if 15" in front)
+const NOSE_PUSH_FACTOR = 0.25;   // fraction of face height
 
 // -----------------------------------------------------
 // tiny 444 Hz blip
@@ -48,40 +56,10 @@ async function setupCamera() {
 // -----------------------------------------------------
 // resize canvases to video
 function resize() {
-  if (!video) return;
-  const w = video.videoWidth  || video.clientWidth  || window.innerWidth;
-  const h = video.videoHeight || video.clientHeight || window.innerHeight;
-
-  canvas.width  = w;
-  canvas.height = h;
-
-  offCanvas.width  = w;
-  offCanvas.height = h;
-
-  // when we FIRST know the real size, drop the cursor in the middle
-  if (smoothX === 120 && smoothY === 120) {
-    smoothX = w / 2;
-    smoothY = h / 2;
-  }
-}
-
-// -----------------------------------------------------
-// HARD HIDE webgazer’s own DOM stuff
-function killWebgazerUI() {
-  const ids = [
-    "webgazerVideoContainer",
-    "webgazerVideoFeed",
-    "webgazerFaceOverlay",
-    "webgazerFaceFeedbackBox",
-    "webgazerGazeDot"
-  ];
-  ids.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.style.display = "none";
-      el.remove(); // just nuke it
-    }
-  });
+  canvas.width  = video.videoWidth  || canvas.clientWidth;
+  canvas.height = video.videoHeight || canvas.clientHeight;
+  offCanvas.width  = canvas.width;
+  offCanvas.height = canvas.height;
 }
 
 // -----------------------------------------------------
@@ -99,26 +77,22 @@ function loadWebGazer() {
 
 function startWebGazer() {
   console.log("🎯 WebGazer starting…");
-  // NOTE: don't call .setTracker("clmtrackr") – your build only has TFFacemesh
   webgazer
-    // .setTracker("TFFacemesh") // optional – we can also let it pick
     .setRegression("ridge")
+    // .setTracker("clmtrackr")   // ❌ remove – causes "invalid tracker selection"
     .begin()
     .then(() => {
       webgazer
-        .showVideoPreview(false)     // try not to show
-        .showPredictionPoints(false) // try not to show
+        .showVideoPreview(false)
+        .showPredictionPoints(false)
         .applyKalmanFilter(true);
-
-      // in case WG re-creates the elements later:
-      setTimeout(killWebgazerUI, 500);
-      setTimeout(killWebgazerUI, 2000);
 
       webgazer.setGazeListener((data) => {
         if (!data) return;
-        // basic sanity check: viewport
-        if (data.x >= 0 && data.x <= window.innerWidth &&
-            data.y >= 0 && data.y <= window.innerHeight) {
+        if (
+          data.x >= 0 && data.x <= window.innerWidth &&
+          data.y >= 0 && data.y <= window.innerHeight
+        ) {
           gazeX = data.x;
           gazeY = data.y;
           lastGazeTime = performance.now();
@@ -159,15 +133,16 @@ async function render() {
   let targetY = smoothY;
 
   if (faces.length > 0) {
-    const k = faces[0].scaledMesh;
+    const face = faces[0];
+    const k = face.scaledMesh;
 
-    // debug points
+    // ----- draw debug mesh -----
     ctx.fillStyle = "rgba(0,255,0,0.6)";
     for (const [x, y] of k) {
       ctx.fillRect(x, y, 2, 2);
     }
 
-    // ========== MOUTH CLICK ==========
+    // ----- MOUTH CLICK -----
     const mouthTopIdx = [13, 14];
     const mouthBotIdx = [17, 18];
     const mouthGap = avgGap(k, mouthTopIdx, mouthBotIdx);
@@ -175,7 +150,7 @@ async function render() {
     if (!mouthReady) {
       mouthSamples.push(mouthGap);
       if (mouthSamples.length > 40) {
-        mouthBaseline = mouthSamples.reduce((a,b)=>a+b,0) / mouthSamples.length;
+        mouthBaseline = mouthSamples.reduce((a, b) => a + b, 0) / mouthSamples.length;
         mouthReady = true;
         console.log("👄 mouth baseline:", mouthBaseline.toFixed(3));
       }
@@ -187,23 +162,28 @@ async function render() {
         cursor.style.background = "rgba(255,0,0,0.85)";
         playBeep(444, 0.18);
         setTimeout(() => cursor.style.background = "rgba(0,255,0,0.7)", 180);
+        console.log("✅ mouth click");
       }
     }
 
-    // ========== FACEMESH FALLBACK GAZE ==========
+    // ====== FACE-MESH FALLBACK GAZE ======
     const nose = k[1];
-    const leftIris = (k[468] && k[469] && k[470] && k[471])
+    const hasLeftIris = k[468] && k[469] && k[470] && k[471];
+    const hasRightIris = k[473] && k[474] && k[475] && k[476];
+
+    const leftIris = hasLeftIris
       ? [
           (k[468][0] + k[469][0] + k[470][0] + k[471][0]) / 4,
-          (k[468][1] + k[469][1] + k[470][1] + k[471][1]) / 4
+          (k[468][1] + k[469][1] + k[470][1] + k[471][1]) / 4,
         ]
-      : (k[159] ? [k[159][0], k[159][1]] : null);
-    const rightIris = (k[473] && k[474] && k[475] && k[476])
+      : k[159] ? [k[159][0], k[159][1]] : null;
+
+    const rightIris = hasRightIris
       ? [
           (k[473][0] + k[474][0] + k[475][0] + k[476][0]) / 4,
-          (k[473][1] + k[474][1] + k[475][1] + k[476][1]) / 4
+          (k[473][1] + k[474][1] + k[475][1] + k[476][1]) / 4,
         ]
-      : (k[386] ? [k[386][0], k[386][1]] : null);
+      : k[386] ? [k[386][0], k[386][1]] : null;
 
     let fbX = canvas.width / 2;
     let fbY = canvas.height / 2;
@@ -217,43 +197,53 @@ async function render() {
       const topFace   = k[10]  || nose;
       const botFace   = k[152] || nose;
 
-      const faceW = Math.max(40, (rightFace[0] - leftFace[0]));
-      const faceH = Math.max(50, (botFace[1]   - topFace[1]));
+      const faceW = Math.max(40, rightFace[0] - leftFace[0]);
+      const faceH = Math.max(50, botFace[1]   - topFace[1]);
 
       let ndx = (irisX - nose[0]) / faceW;
       let ndy = (irisY - nose[1]) / faceH;
 
+      // base, uncalibrated fallback
       const H_GAIN = 2.2;
       const V_GAIN = 2.0;
-
       fbX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN;
       fbY = canvas.height / 2 + ndy * canvas.height * V_GAIN;
 
+      // keep inside
       fbX = Math.max(0, Math.min(canvas.width,  fbX));
       fbY = Math.max(0, Math.min(canvas.height, fbY));
+
+      // ✅ push dot “forward” from the nose
+      // do it in screen space downward a bit (y) so it sits between eyes
+      fbY = fbY + faceH * NOSE_PUSH_FACTOR;
     }
 
-    // ========== PICK SOURCE ==========
+    // ====== Choose source ======
     const now = performance.now();
     const webgazerFresh = (now - lastGazeTime) < 350;
 
     if (webgazerFresh) {
+      // 1. normalize WG (0..1)
       const normX = gazeX / window.innerWidth;
       const normY = gazeY / window.innerHeight;
-      targetX = canvas.width  - normX * canvas.width;  // mirror
-      targetY =               normY * canvas.height;
+
+      // 2. mirror + apply calibration
+      targetX =
+        (canvas.width - normX * canvas.width) + canvas.width * CALIBRATION_X;
+      targetY =
+        (normY * canvas.height) + canvas.height * CALIBRATION_Y;
     } else {
-      // our own facemesh gaze, also mirrored
-      targetX = canvas.width - fbX;
-      targetY = fbY;
+      // fallback (already in canvas space) -> mirror + apply calibration
+      targetX = (canvas.width - fbX) + canvas.width * CALIBRATION_X;
+      targetY = fbY + canvas.height * CALIBRATION_Y;
     }
   } else {
     // no face → center
-    targetX = canvas.width / 2;
+    targetX = canvas.width  / 2;
     targetY = canvas.height / 2;
   }
 
-  // ========== SMOOTH ==========
+  // ----- smoothing -----
   const SMOOTH = 0.25;
   smoothX += (targetX - smoothX) * SMOOTH;
   smoothY += (targetY - smoothY) * SMOOTH;
@@ -283,7 +273,6 @@ async function init() {
   console.log("✅ FaceMesh loaded");
 
   loadWebGazer();
-
   render();
 }
 
