@@ -192,6 +192,7 @@ async function render() {
 
     // ========== FACEMESH FALLBACK GAZE ==========
     // ========== FACEMESH FALLBACK GAZE ==========
+// ---------- FACEMESH FALLBACK GAZE ----------
 const nose = k[1];
 const leftIris = (k[468] && k[469] && k[470] && k[471])
   ? [
@@ -218,30 +219,33 @@ if (nose && leftIris && rightIris) {
   const topFace   = k[10]  || nose;
   const botFace   = k[152] || nose;
 
-  const faceW = Math.max(40, (rightFace[0] - leftFace[0]));
-  const faceH = Math.max(50, (botFace[1]   - topFace[1]));
+  const faceW = Math.max(40, rightFace[0] - leftFace[0]);
+  const faceH = Math.max(50, botFace[1]   - topFace[1]);
 
-  // normalized offsets
+  // normalized eye offsets
   let ndx = (irisX - nose[0]) / faceW;
   let ndy = (irisY - nose[1]) / faceH;
 
-  // ✅ 1) vertical is backwards → flip it
-  ndy = -ndy;
-
-  // ✅ 2) eyes usually sit a bit below nose in 2D → subtract small neutral
-  const V_NEUTRAL = 0.1;   // tweak 0.02–0.06
-  ndy -= V_NEUTRAL;
-
+  // --- tuning knobs ---
   const H_GAIN = 2.2;
   const V_GAIN = 2.0;
 
-  fbX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN;
-  fbY = canvas.height / 2 - ndy * canvas.height * V_GAIN; // note the "-" now
+  // raise / lower neutral vertical
+  const V_NEUTRAL = 0.10;   // you can keep tweaking this
+
+  // shift dot a bit to the RIGHT (it was slightly left)
+  const X_OFFSET = 25;      // px → make 15–35 to taste
+
+  // IMPORTANT: for your setup looking UP should move dot UP
+  // so we use "+" here, not "-"
+  fbX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN + X_OFFSET;
+  fbY = canvas.height / 2 + (ndy - V_NEUTRAL) * canvas.height * V_GAIN;
 
   // clamp
   fbX = Math.max(0, Math.min(canvas.width,  fbX));
-  fbY = canvas.height / 2 + (canvas.height, fby;
+  fbY = Math.max(0, Math.min(canvas.height, fbY));
 }
+
 
 
     // ========== PICK SOURCE ==========
