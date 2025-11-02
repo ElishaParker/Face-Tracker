@@ -5,29 +5,39 @@ html, body {
   background: black;
 }
 
-video, canvas {
+/* mirror ONLY the camera feed */
+video {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);  /* ✅ Mirror camera + overlay */
+  transform: scaleX(-1);   /* ✅ user-friendly mirror */
   z-index: 0;
 }
 
+/* canvas follows video, but is NOT mirrored */
 canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* ❌ no transform here */
   z-index: 1;
   pointer-events: none;
 }
 
+/* cursor sits on top, normal space */
 #cursor {
   position: absolute;
   width: 20px;
   height: 20px;
   border-radius: 50%;
   background: rgba(0, 255, 0, 0.6);
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);  /* keep this so it centers */
   z-index: 2;
   pointer-events: none;
 }
