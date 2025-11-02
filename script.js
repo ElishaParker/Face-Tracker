@@ -57,7 +57,7 @@ async function render() {
 
     // Cursor mapping (invert X for mirrored webcam)
   // Cursor mapping
-const x = canvas.width - dx; // 👈 keep this
+const x = dx;
 const y = dy;
 cursor.style.left = `${x}px`;
 cursor.style.top = `${y}px`;
