@@ -1,6 +1,6 @@
 // ===============================
-// Face Tracker v1.3b
-// Adaptive Multi-Landmark Blink + 444 Hz Tone
+// Face Tracker v1.3c
+// Auto Exposure Boost + Adaptive Blink + 444 Hz Tone
 // ===============================
 
 let model, video, canvas, ctx;
@@ -10,7 +10,10 @@ let blinkBaseline = null;
 let baselineSamples = [];
 let baselineReady = false;
 
-// === 444 Hz internal beep ===
+// extra canvas for brightness correction
+let offCanvas, offCtx;
+
+// === Internal synth (444 Hz) ===
 function playBeep(f = 444, dur = 0.15) {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const osc = ctx.createOscillator();
@@ -27,7 +30,14 @@ function playBeep(f = 444, dur = 0.15) {
 
 async function setupCamera() {
   video = document.getElementById("video");
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      brightness: 1.0,
+      contrast: 1.0
+    }
+  });
   video.srcObject = stream;
   await new Promise(r => (video.onloadedmetadata = r));
 }
@@ -38,6 +48,11 @@ async function init() {
 
   canvas = document.getElementById("overlay");
   ctx = canvas.getContext("2d");
+
+  // setup brightness enhancement canvas
+  offCanvas = document.createElement("canvas");
+  offCtx = offCanvas.getContext("2d");
+
   resize();
   window.addEventListener("resize", resize);
 
@@ -49,6 +64,8 @@ async function init() {
 function resize() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
+  offCanvas.width = video.videoWidth;
+  offCanvas.height = video.videoHeight;
 }
 
 function avg(pts) {
@@ -65,7 +82,13 @@ function avgEyeDistance(keypoints, topIdx, bottomIdx) {
 }
 
 async function render() {
-  const faces = await model.estimateFaces(video);
+  // === Brightness/contrast enhancement ===
+  const BRIGHTNESS = 1.25; // 1.0 = normal; raise for darker rooms
+  const CONTRAST = 1.3;    // 1.0 = neutral
+  offCtx.filter = `brightness(${BRIGHTNESS}) contrast(${CONTRAST})`;
+  offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
+
+  const faces = await model.estimateFaces(offCanvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (faces.length > 0) {
@@ -99,17 +122,16 @@ async function render() {
     cursor.style.left = `${canvas.width - smoothX}px`;
     cursor.style.top = `${smoothY}px`;
 
-    // === Multi-landmark eye closure tracking ===
+    // === Multi-landmark eyelid distance ===
     const leftTop = [159, 160, 161, 246];
     const leftBot = [145, 144, 153, 154];
     const rightTop = [386, 385, 384, 398];
     const rightBot = [374, 373, 380, 381];
-
     const leftDist = avgEyeDistance(k, leftTop, leftBot);
     const rightDist = avgEyeDistance(k, rightTop, rightBot);
     const eyeAvg = (leftDist + rightDist) / 2;
 
-    // === Adaptive calibration ===
+    // === Baseline calibration ===
     if (!baselineReady) {
       baselineSamples.push(eyeAvg);
       if (baselineSamples.length > 60) {
@@ -119,10 +141,10 @@ async function render() {
         console.log("Blink baseline set:", blinkBaseline.toFixed(2));
       }
     } else {
-      const blinkThreshold = blinkBaseline * 0.65; // More sensitive than before
+      const blinkThreshold = blinkBaseline * 0.65;
       const blink = eyeAvg < blinkThreshold;
 
-      // Visual eyelid bars
+      // Draw eyelid lines
       ctx.strokeStyle = "rgba(255,255,0,0.5)";
       ctx.beginPath();
       ctx.moveTo(k[159][0], k[159][1]);
@@ -131,7 +153,6 @@ async function render() {
       ctx.lineTo(k[374][0], k[374][1]);
       ctx.stroke();
 
-      // === Blink event ===
       if (blink && Date.now() - lastBlink > 700) {
         lastBlink = Date.now();
         cursor.style.background = "rgba(255,0,0,0.8)";
