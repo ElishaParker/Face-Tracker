@@ -6,9 +6,15 @@
   <title>AI Eye-Gaze Tracker</title>
 
   <!-- ✅ Latest TF + Face Landmarks Detection -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.19.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@1.0.3/dist/face-landmarks-detection.min.js"></script>
+<!-- TensorFlow core -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+
+<!-- MediaPipe FaceMesh backend -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.min.js"></script>
+
+<!-- ✅ TensorFlow Face Landmarks Detection (global namespace compatible) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@0.0.5/dist/face-landmarks-detection.min.js"></script>
+
 
   <style>
     body,html {margin:0;padding:0;overflow:hidden;background:#000;}
