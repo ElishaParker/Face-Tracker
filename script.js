@@ -44,31 +44,54 @@ async function render() {
     }
 
     // ✅ Eye gaze estimation (stable + visible)
-    if (face.annotations?.leftEyeUpper0 && face.annotations?.leftEyeLower0 && face.annotations?.leftEye) {
-      const leftEyeUpper = face.annotations.leftEyeUpper0;
-      const leftEyeLower = face.annotations.leftEyeLower0;
-      const leftEyeOuter = face.annotations.leftEye[0]; // outer corner
-      const leftEyeInner = face.annotations.leftEye[3]; // inner corner
+    // ✅ Dual-eye gaze estimation (mirror mode)
+if (
+  face.annotations?.leftEyeUpper0 && face.annotations?.leftEyeLower0 &&
+  face.annotations?.rightEyeUpper0 && face.annotations?.rightEyeLower0
+) {
+  const le = face.annotations.leftEye;
+  const re = face.annotations.rightEye;
 
-      // Approximate eye center
-      const eyeCenterX = (leftEyeOuter[0] + leftEyeInner[0]) / 2;
-      const eyeCenterY = (leftEyeUpper[3][1] + leftEyeLower[3][1]) / 2;
+  // Outer / inner corners for each eye
+  const leOuter = le[0], leInner = le[3];
+  const reOuter = re[3], reInner = re[0];
 
-      const eyeWidth = Math.abs(leftEyeOuter[0] - leftEyeInner[0]);
-      const eyeHeight = Math.abs(leftEyeUpper[3][1] - leftEyeLower[3][1]);
+  // Vertical midpoints
+  const leUpper = face.annotations.leftEyeUpper0[3];
+  const leLower = face.annotations.leftEyeLower0[3];
+  const reUpper = face.annotations.rightEyeUpper0[3];
+  const reLower = face.annotations.rightEyeLower0[3];
 
-      // Normalize gaze offsets
-      const offsetX = (eyeCenterX - leftEyeInner[0]) / eyeWidth - 0.5;
-      const offsetY = (eyeCenterY - (leftEyeUpper[3][1] + eyeHeight / 2)) / eyeHeight;
+  // Eye centers
+  const leCenter = [
+    (leOuter[0] + leInner[0]) / 2,
+    (leUpper[1] + leLower[1]) / 2
+  ];
+  const reCenter = [
+    (reOuter[0] + reInner[0]) / 2,
+    (reUpper[1] + reLower[1]) / 2
+  ];
 
-      // Scale to canvas space
-      const gazeX = canvas.width / 2 - offsetX * canvas.width * 0.8;
-      const gazeY = canvas.height / 2 + offsetY * canvas.height * 0.8;
+  // Average both eyes
+  const eyeCenterX = (leCenter[0] + reCenter[0]) / 2;
+  const eyeCenterY = (leCenter[1] + reCenter[1]) / 2;
 
-      // Flip X to match mirrored view
-      cursor.style.left = `${canvas.width - gazeX}px`;
-      cursor.style.top = `${gazeY}px`;
-    }
+  // Normalize offsets (horizontal and vertical)
+  const eyeWidth = ((Math.abs(leOuter[0] - leInner[0]) + Math.abs(reOuter[0] - reInner[0])) / 2);
+  const eyeHeight = ((Math.abs(leUpper[1] - leLower[1]) + Math.abs(reUpper[1] - reLower[1])) / 2);
+
+  const offsetX = ((eyeCenterX - ((leInner[0] + reInner[0]) / 2)) / eyeWidth);
+  const offsetY = ((eyeCenterY - ((leUpper[1] + reUpper[1]) / 2)) / eyeHeight);
+
+  // Scale to screen space (increase multiplier for larger motion)
+  const gazeX = canvas.width / 2 - offsetX * canvas.width * 1.2;
+  const gazeY = canvas.height / 2 + offsetY * canvas.height * 1.2;
+
+  // Flip X to match mirrored view
+  cursor.style.left = `${canvas.width - gazeX}px`;
+  cursor.style.top = `${gazeY}px`;
+}
+
 
     // ✅ Blink detection (optional visual cue)
     if (face.annotations?.leftEyeUpper0 && face.annotations?.leftEyeLower0) {
