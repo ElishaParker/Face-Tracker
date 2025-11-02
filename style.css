@@ -41,3 +41,13 @@ canvas {
   z-index: 2;
   pointer-events: none;
 }
+
+/* hide webgazer’s own tiny preview if it still spawns */
+#webgazerVideoContainer,
+#webgazerGazeDot,
+#webgazerFaceOverlay,
+#webgazerFaceFeedbackBox {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
