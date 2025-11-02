@@ -1,185 +1,126 @@
-// =======================================
-// Eye-Gaze Tracker v2.1
-// Adaptive Exposure + Brightness Feedback
-// =======================================
+// =====================================================
+// Hybrid Eye-Gaze Tracker v2.0
+// - WebGazer for smooth gaze-based cursor motion
+// - TensorFlow FaceMesh for blink detection + overlay
+// =====================================================
 
 let model, video, canvas, ctx;
 let cursor, lastBlink = 0;
+let gazeX = 0, gazeY = 0; // from WebGazer
 let smoothX = 0, smoothY = 0;
-let blinkBaseline = null, baselineSamples = [], baselineReady = false;
-let offCanvas, offCtx;
-let brightnessFactor = 1.3, contrastFactor = 1.2;
 
-// ===== 444 Hz internal tone =====
-function playBeep(f=444, d=0.15) {
-  const a = new (window.AudioContext || window.webkitAudioContext)();
-  const o = a.createOscillator(), g = a.createGain();
-  o.type = "sine"; o.frequency.value = f;
-  g.gain.setValueAtTime(0.2, a.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + d);
-  o.connect(g); g.connect(a.destination);
-  o.start(); o.stop(a.currentTime + d);
-}
-
-// ===== adaptive exposure attempt =====
+// ===== Initialize FaceMesh camera =====
 async function setupCamera() {
   video = document.getElementById("video");
-
-  // Try to request manual exposure control (browser support dependent)
-  const constraints = {
-    video: {
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-      facingMode: "user",
-      // Try to unlock exposure controls if available
-      advanced: [
-        { exposureMode: "continuous" },
-        { exposureCompensation: 0.2 }
-      ]
-    }
-  };
-
-  const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   video.srcObject = stream;
-
-  // Some webcams allow direct exposure manipulation
-  const track = stream.getVideoTracks()[0];
-  const capabilities = track.getCapabilities?.() || {};
-  if (capabilities.exposureCompensation) {
-    const range = capabilities.exposureCompensation;
-    const mid = (range.max + range.min) / 2;
-    try {
-      await track.applyConstraints({ advanced: [{ exposureCompensation: mid }] });
-      console.log("✅ Exposure compensation applied:", mid);
-    } catch (err) {
-      console.warn("⚠️ Exposure adjustment not supported:", err);
-    }
-  }
-
-  await new Promise(r => (video.onloadedmetadata = r));
+  await new Promise(resolve => (video.onloadedmetadata = resolve));
 }
 
-// ===== initialization =====
+// ===== Initialize TensorFlow FaceMesh + WebGazer =====
 async function init() {
   cursor = document.getElementById("cursor");
   await setupCamera();
 
   canvas = document.getElementById("overlay");
   ctx = canvas.getContext("2d");
-  offCanvas = document.createElement("canvas");
-  offCtx = offCanvas.getContext("2d");
 
   resize();
   window.addEventListener("resize", resize);
 
-  console.log("Loading face-landmarks-detection...");
-  model = await faceLandmarksDetection.load(
-    faceLandmarksDetection.SupportedPackages.mediapipeFacemesh,
-    { maxFaces: 1 }
-  );
-  console.log("✅ Model loaded");
+  // Load FaceMesh
+  model = await facemesh.load();
+  console.log("✅ FaceMesh model loaded");
+
+  // Load WebGazer
+  loadWebGazer();
+
   render();
 }
 
-// ===== helpers =====
+// ===== Responsive canvas size =====
 function resize() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  offCanvas.width = video.videoWidth;
-  offCanvas.height = video.videoHeight;
 }
 
-function avg(pts) {
-  const s = pts.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]);
-  return [s[0] / pts.length, s[1] / pts.length];
+// ===== Initialize WebGazer (cursor motion only) =====
+function loadWebGazer() {
+  if (!window.webgazer) {
+    const s = document.createElement("script");
+    s.src = "https://webgazer.cs.brown.edu/webgazer.js";
+    document.head.appendChild(s);
+    s.onload = startWebGazer;
+  } else startWebGazer();
 }
 
-function regionGap(mesh, top, bottom) {
-  const n = Math.min(top.length, bottom.length);
-  let sum = 0;
-  for (let i = 0; i < n; i++) sum += Math.abs(mesh[top[i]][1] - mesh[bottom[i]][1]);
-  return sum / n;
+function startWebGazer() {
+  console.log("🎯 Initializing WebGazer...");
+  webgazer.setRegression("ridge")
+          .setTracker("clmtrackr")
+          .begin();
+
+  webgazer.showVideoPreview(false)
+          .showPredictionPoints(false)
+          .applyKalmanFilter(true);
+
+  webgazer.setGazeListener((data) => {
+    if (!data) return;
+    gazeX = data.x;
+    gazeY = data.y;
+  });
+
+  console.log("✅ WebGazer active: move your eyes to move the cursor.");
 }
 
-function measureFrameBrightness() {
-  const frame = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
-  const data = frame.data;
-  let total = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    total += (data[i] + data[i+1] + data[i+2]) / 3;
-  }
-  return total / (data.length / 4) / 255; // normalize 0–1
-}
-
-// ===== main render loop =====
+// ===== Main Render Loop =====
 async function render() {
-  // Adjust brightness dynamically based on image luminance
-  const brightness = measureFrameBrightness();
-  if (brightness < 0.35) brightnessFactor = 1.8;
-  else if (brightness < 0.5) brightnessFactor = 1.5;
-  else if (brightness > 0.75) brightnessFactor = 1.0;
-  else brightnessFactor = 1.2;
-
-  offCtx.filter = `brightness(${brightnessFactor}) contrast(${contrastFactor})`;
-  offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
-
-  const faces = await model.estimateFaces({ input: offCanvas });
+  const predictions = await model.estimateFaces(video);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  if (faces.length > 0) {
-    const f = faces[0], k = f.scaledMesh;
+  // === Face tracking landmarks + blink detection ===
+  if (predictions.length > 0) {
+    const face = predictions[0];
+    const keypoints = face.scaledMesh;
 
-    // draw mesh
+    // Draw landmarks
     ctx.fillStyle = "rgba(0,255,0,0.6)";
-    for (const [x, y] of k) ctx.fillRect(x, y, 2, 2);
+    for (const [x, y] of keypoints) ctx.fillRect(x, y, 2, 2);
 
-    // pupils
-    const lC = avg(k.slice(468, 472)), rC = avg(k.slice(473, 477));
-    ctx.fillStyle = "rgba(0,150,255,0.9)";
-    ctx.beginPath();
-    ctx.arc(lC[0], lC[1], 3, 0, 2 * Math.PI);
-    ctx.arc(rC[0], rC[1], 3, 0, 2 * Math.PI);
-    ctx.fill();
+    // Eye landmarks
+    const leftEyeUpper = keypoints[159];
+    const leftEyeLower = keypoints[145];
+    const rightEyeUpper = keypoints[386];
+    const rightEyeLower = keypoints[374];
+    const leftIrisCenter = keypoints[468] || leftEyeUpper;
+    const rightIrisCenter = keypoints[473] || rightEyeUpper;
 
-    // cursor follows gaze
-    const nose = k[1];
-    const dx = ((lC[0] + rC[0]) / 2 - nose[0]) * 7;
-    const dy = ((lC[1] + rC[1]) / 2 - nose[1]) * 7;
-    const targetX = canvas.width / 2 - dx;
-    const targetY = canvas.height / 2 + dy;
-    smoothX += (targetX - smoothX) * 0.15;
-    smoothY += (targetY - smoothY) * 0.15;
-    cursor.style.left = `${canvas.width - smoothX}px`;
-    cursor.style.top = `${smoothY}px`;
+    // Blink detection
+    const leftBlinkDist = Math.abs(leftEyeUpper[1] - leftEyeLower[1]);
+    const rightBlinkDist = Math.abs(rightEyeUpper[1] - rightEyeLower[1]);
+    const blink = leftBlinkDist < 2.5 && rightBlinkDist < 2.5;
 
-    // eyelid gaps
-    const leftTop = [159,160,161,246], leftBot = [145,144,153,154];
-    const rightTop = [386,385,384,398], rightBot = [374,373,380,381];
-    const leftGap = regionGap(k, leftTop, leftBot);
-    const rightGap = regionGap(k, rightTop, rightBot);
-    const eyeAvg = (leftGap + rightGap) / 2;
+    // Blink feedback overlay
+    ctx.fillStyle = blink ? "rgba(255,0,0,0.6)" : "rgba(0,255,0,0.4)";
+    ctx.fillRect(leftIrisCenter[0] - 3, leftIrisCenter[1] - 3, 6, 6);
+    ctx.fillRect(rightIrisCenter[0] - 3, rightIrisCenter[1] - 3, 6, 6);
 
-    // baseline calibration
-    if (!baselineReady) {
-      baselineSamples.push(eyeAvg);
-      if (baselineSamples.length > 60) {
-        blinkBaseline = baselineSamples.reduce((a, b) => a + b, 0) / baselineSamples.length;
-        baselineReady = true;
-        console.log("Blink baseline:", blinkBaseline.toFixed(3));
-      }
-    } else {
-      const blinkThreshold = blinkBaseline * 0.65;
-      const blink = eyeAvg < blinkThreshold;
-
-      if (blink && Date.now() - lastBlink > 700) {
-        lastBlink = Date.now();
-        cursor.style.background = "rgba(255,0,0,0.8)";
-        playBeep(444, 0.2);
-        setTimeout(() => cursor.style.background = "rgba(0,255,0,0.6)", 250);
-        console.log("👁 Blink detected");
-      }
+    // Visual blink on cursor
+    if (blink && Date.now() - lastBlink > 500) {
+      lastBlink = Date.now();
+      cursor.style.background = "rgba(255,0,0,0.8)";
+      setTimeout(() => (cursor.style.background = "rgba(0,255,0,0.6)"), 200);
+      console.log("👁 Blink detected");
     }
   }
+
+  // === Cursor position (WebGazer gaze) ===
+  const smoothing = 0.2;
+  smoothX += (gazeX - smoothX) * smoothing;
+  smoothY += (gazeY - smoothY) * smoothing;
+
+  cursor.style.left = `${smoothX}px`;
+  cursor.style.top = `${smoothY}px`;
 
   requestAnimationFrame(render);
 }
