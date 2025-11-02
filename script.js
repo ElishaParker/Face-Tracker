@@ -10,7 +10,6 @@ async function setupCamera() {
 
 async function init() {
   cursor = document.getElementById('cursor');
-
   await setupCamera();
 
   canvas = document.getElementById('overlay');
@@ -19,7 +18,6 @@ async function init() {
   resize();
   window.addEventListener('resize', resize);
 
-  // ✅ Fix: Make sure this is defined in version 1.0.1
   model = await faceLandmarksDetection.load(
     faceLandmarksDetection.SupportedPackages.mediapipeFacemesh
   );
@@ -40,31 +38,23 @@ async function render() {
   if (predictions.length > 0 && predictions[0].scaledMesh) {
     const keypoints = predictions[0].scaledMesh;
 
-    // ✅ Safety check for keypoint length
-    if (keypoints.length < 387) return;
-
-    // Draw facial points
+    // Draw all points (optional)
     ctx.fillStyle = 'rgba(0,255,0,0.5)';
     for (let [x, y] of keypoints) {
-      ctx.fillRect(x, y, 1.5, 1.5);
+      ctx.fillRect(x, y, 2, 2);
     }
 
-  // Eye center between two keypoints
+    // Cursor: average left and right eye
     const leftEye = keypoints[159];
     const rightEye = keypoints[386];
-    const dx = (rightEye[0] + leftEye[0]) / 2;
-    const dy = (rightEye[1] + leftEye[1]) / 2;
+    const dx = (leftEye[0] + rightEye[0]) / 2;
+    const dy = (leftEye[1] + rightEye[1]) / 2;
 
-// ✅ Don't flip the X — canvas is already mirrored
-    const x = dx;
-    const y = dy;
+    // ✅ DO NOT FLIP X — canvas is already mirrored
+    cursor.style.left = `${dx}px`;
+    cursor.style.top = `${dy}px`;
 
-    cursor.style.left = `${x}px`;
-    cursor.style.top = `${y}px`;
-
-
-
-    // Blink detection — eyelid vertical distance
+    // Blink detection (optional)
     const eyeTop = keypoints[159][1];
     const eyeBottom = keypoints[145][1];
     const eyeDist = Math.abs(eyeTop - eyeBottom);
