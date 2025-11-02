@@ -56,9 +56,9 @@ async function render() {
     const dy = (rightEye[1] + leftEye[1]) / 2;
 
     // Cursor mapping (invert X for mirrored webcam)
-    const x = dx;
+    const x = xd;
     const y = dy;
-    cursor.style.left = `${dx}px`;
+    cursor.style.left = `${xd}px`;
     cursor.style.top = `${dy}px`;
 
     // Blink detection — eyelid vertical distance
