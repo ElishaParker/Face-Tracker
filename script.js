@@ -227,11 +227,11 @@ if (nose && leftIris && rightIris) {
   let ndy = (irisY - nose[1]) / faceH;
 
   // --- tuning knobs ---
-  const H_GAIN = 2.2;
-  const V_GAIN = 2.0;
+  const H_GAIN = 5.1;
+  const V_GAIN = 3.5;
 
   // raise / lower neutral vertical
-  const V_NEUTRAL = 0.01;   // you can keep tweaking this
+  const V_NEUTRAL = -0.05;   // you can keep tweaking this
 
   // shift dot a bit to the RIGHT (it was slightly left)
   const X_OFFSET = 25;      // px → make 15–35 to taste
