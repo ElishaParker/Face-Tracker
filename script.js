@@ -49,18 +49,19 @@ async function render() {
       ctx.fillRect(x, y, 1.5, 1.5);
     }
 
-    // Eye center between two keypoints
-    const leftEye = keypoints[159];
-    const rightEye = keypoints[386];
-    const dx = (rightEye[0] + leftEye[0]) / 2;
-    const dy = (rightEye[1] + leftEye[1]) / 2;
+  // Eye center between two keypoints
+const leftEye = keypoints[159];
+const rightEye = keypoints[386];
+const dx = (rightEye[0] + leftEye[0]) / 2;
+const dy = (rightEye[1] + leftEye[1]) / 2;
 
-    // Cursor mapping (invert X for mirrored webcam)
-  // Cursor mapping
+// ✅ Don't flip the X — canvas is already mirrored
 const x = dx;
 const y = dy;
+
 cursor.style.left = `${x}px`;
 cursor.style.top = `${y}px`;
+
 
 
     // Blink detection — eyelid vertical distance
