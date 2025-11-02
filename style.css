@@ -8,15 +8,14 @@ html, body {
 }
 
 /* ✅ Mirror the camera feed horizontally */
-video {
+video, canvas {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1); /* 👈 mirror horizontally */
-  z-index: 0;
+  transform: scaleX(-1);  /* ✅ Mirrors both video + canvas */
 }
 
 /* ✅ Mirror the overlay too so coordinates match */
