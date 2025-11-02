@@ -256,7 +256,7 @@ if (nose && leftIris && rightIris) {
     } else {
       // our own facemesh gaze, also mirrored
       targetX = canvas.width - fbX;
-      targetY = fbY;
+      targetY = canvas.height - fbY;  
     }
   } else {
     // no face → center
