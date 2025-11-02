@@ -50,17 +50,17 @@ async function render() {
     }
 
   // Eye center between two keypoints
-const leftEye = keypoints[159];
-const rightEye = keypoints[386];
-const dx = (rightEye[0] + leftEye[0]) / 2;
-const dy = (rightEye[1] + leftEye[1]) / 2;
+    const leftEye = keypoints[159];
+    const rightEye = keypoints[386];
+    const dx = (rightEye[0] + leftEye[0]) / 2;
+    const dy = (rightEye[1] + leftEye[1]) / 2;
 
 // ✅ Don't flip the X — canvas is already mirrored
-const x = dx;
-const y = dy;
+    const x = dx;
+    const y = dy;
 
-cursor.style.left = `${x}px`;
-cursor.style.top = `${y}px`;
+    cursor.style.left = `${x}px`;
+    cursor.style.top = `${y}px`;
 
 
 
