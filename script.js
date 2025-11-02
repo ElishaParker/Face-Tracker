@@ -23,8 +23,8 @@ let eyeBaselineReady = false;
 const eyeSamples = [];
 
 // tweak these to make it move more/less
-const H_GAIN = 3;   // horizontal sensitivity
-const V_GAIN = 3;   // vertical sensitivity
+const H_GAIN = 1.5;   // horizontal sensitivity
+const V_GAIN = 1.5;   // vertical sensitivity
 
 // --- audio click ---
 function playBeep(f = 444, d = 0.15) {
@@ -99,7 +99,7 @@ async function render() {
   offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
 
   // boost for dim rooms
-  offCtx.filter = "brightness(.5) contrast(.5)";
+  offCtx.filter = "brightness() contrast()";
   offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
 
   const faces = await model.estimateFaces(offCanvas);
