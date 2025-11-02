@@ -1,158 +1,130 @@
-
 // =====================================================
-// Assistive Eye‑Gaze Tracker
+// Assistive Eye-Gaze Tracker (FaceMesh + WebGazer)
+// =====================================================
 //
-// This script combines two complementary technologies to provide
-// accessible hands‑free cursor control and click actions:
+// • FaceMesh (TF.js)  →  blink + mouth-open detection
+// • WebGazer          →  moves cursor on the browser window
+// • Adaptive brightness
+// • 444 Hz beep on activation
 //
-//   • WebGazer.js (loaded asynchronously) supplies live gaze
-//     predictions as screen coordinates.  These coordinates drive
-//     the on‑screen cursor indicator in real time.
-//
-//   • TensorFlow.js FaceMesh runs in parallel on a downsampled video
-//     feed.  It detects facial landmarks to derive blink events via
-//     eyelid separation.  When both eyes close beyond a calibrated
-//     threshold, the cursor flashes red and a 444 Hz tone plays to
-//     indicate an activation (click).
-//
-// Additional features include adaptive brightness and contrast based
-// on the scene illumination, and an attempt to configure the camera’s
-// exposure if supported.  The video feed is mirrored for intuitive
-// cursor motion.
+// This is a DROP-IN update for your last script.
+// =====================================================
 
 let model, video, canvas, ctx;
-let cursor, lastBlink = 0;
-let gazeX = 0, gazeY = 0;    // coordinates from WebGazer
-let smoothX = 0, smoothY = 0; // smoothed cursor position
-let offCanvas, offCtx;        // off‑screen canvas for filtering
-let blinkBaseline = null;
-let baselineSamples = [];
-let baselineReady = false;
+let cursor, lastClick = 0;
+let gazeX = null, gazeY = null;     // from webgazer (viewport coords)
+let smoothX = window.innerWidth / 2;
+let smoothY = window.innerHeight / 2;
 
-// Dynamic brightness/contrast factors.  These are updated on the fly
-// based on measured frame luminance to keep the model robust in
-// low‑light environments.
+let offCanvas, offCtx;
+let blinkBaseline = null, blinkSamples = [], blinkReady = false;
+let mouthBaseline = null, mouthSamples = [], mouthReady = false;
+
 let brightnessFactor = 1.3;
 let contrastFactor = 1.2;
 
-/**
- * Play a short tone to signal a blink click.  Uses the Web Audio API.
- * @param {number} f Frequency in Hz
- * @param {number} d Duration in seconds
- */
+// -----------------------------------------------------
+// utilities
+// -----------------------------------------------------
 function playBeep(f = 444, d = 0.15) {
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
+  const AC = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = AC.createOscillator();
+  const gain = AC.createGain();
   osc.type = "sine";
   osc.frequency.value = f;
-  gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + d);
+  gain.gain.setValueAtTime(0.2, AC.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + d);
   osc.connect(gain);
-  gain.connect(audioCtx.destination);
+  gain.connect(AC.destination);
   osc.start();
-  osc.stop(audioCtx.currentTime + d);
+  osc.stop(AC.currentTime + d);
 }
 
-/**
- * Attempt to enable continuous exposure control on the webcam.  Not all
- * browsers or devices support this, so failure is silently ignored.
- *
- * @param {MediaStreamTrack} track The video track to adjust.
- */
+function doClickFeedback() {
+  // avoid spam
+  if (Date.now() - lastClick < 500) return;
+  lastClick = Date.now();
+  if (cursor) {
+    const old = cursor.style.background;
+    cursor.style.background = "rgba(255,0,0,0.85)";
+    setTimeout(() => (cursor.style.background = old || "rgba(0,255,0,0.6)"), 220);
+  }
+  playBeep(444, 0.2);
+}
+
+// -----------------------------------------------------
+// exposure (best effort)
+// -----------------------------------------------------
 async function applyExposureCompensation(track) {
   if (!track || !track.getCapabilities) return;
   const caps = track.getCapabilities();
-  if (caps.exposureCompensation) {
-    const { min, max } = caps.exposureCompensation;
-    const mid = (min + max) / 2;
-    try {
-      await track.applyConstraints({ advanced: [{ exposureMode: "continuous", exposureCompensation: mid }] });
-      console.log("✅ Exposure compensation applied:", mid);
-    } catch (err) {
-      console.warn("⚠️ Exposure control unsupported:", err);
-    }
+  if (!caps.exposureCompensation) return;
+  const mid = (caps.exposureCompensation.min + caps.exposureCompensation.max) / 2;
+  try {
+    await track.applyConstraints({
+      advanced: [
+        { exposureMode: "continuous", exposureCompensation: mid }
+      ],
+    });
+    console.log("✅ exposure compensation set:", mid);
+  } catch (e) {
+    console.warn("⚠️ exposure not supported:", e);
   }
 }
 
-/**
- * Set up the webcam and apply exposure adjustments where available.
- */
+// -----------------------------------------------------
+// camera
+// -----------------------------------------------------
 async function setupCamera() {
   video = document.getElementById("video");
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } });
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      facingMode: "user"
+    }
+  });
   video.srcObject = stream;
   const track = stream.getVideoTracks()[0];
-  await applyExposureCompensation(track);
-  await new Promise(resolve => (video.onloadedmetadata = resolve));
+  applyExposureCompensation(track).catch(() => {});
+  await new Promise(r => (video.onloadedmetadata = r));
 }
 
-/**
- * Initialize the entire system: camera, canvases, FaceMesh, WebGazer.
- */
-async function init() {
-  cursor = document.getElementById("cursor");
-  await setupCamera();
-
-  canvas = document.getElementById("overlay");
-  ctx = canvas.getContext("2d");
-  offCanvas = document.createElement("canvas");
-  offCtx = offCanvas.getContext("2d");
-  resize();
-  window.addEventListener("resize", resize);
-
-  // Load FaceMesh model (TensorFlow.js)
-  model = await facemesh.load();
-  console.log("✅ FaceMesh loaded");
-
-  // Start WebGazer
-  loadWebGazer();
-
-  // Kick off render loop
-  requestAnimationFrame(render);
+// -----------------------------------------------------
+// webgazer
+// -----------------------------------------------------
+function loadWebGazer() {
+  // use CDN that works on GH pages
+  const s = document.createElement("script");
+  s.src = "https://cdn.jsdelivr.net/npm/webgazer/dist/webgazer.min.js";
+  s.async = true;
+  s.onload = startWebGazer;
+  document.head.appendChild(s);
 }
 
-/**
- * Adjust the size of canvases when the video dimensions change.
- */
-function resize() {
-  canvas.width = video.videoWidth || canvas.clientWidth;
-  canvas.height = video.videoHeight || canvas.clientHeight;
-  offCanvas.width = canvas.width;
-  offCanvas.height = canvas.height;
+function startWebGazer() {
+  console.log("🎯 starting WebGazer...");
+  webgazer
+    .setRegression("ridge")
+    .setTracker("clmtrackr")
+    .begin()
+    .showVideoPreview(false)
+    .showPredictionPoints(false)
+    .applyKalmanFilter(true);
+
+  webgazer.setGazeListener((data) => {
+    if (!data) return;
+    // viewport coords
+    gazeX = data.x;
+    gazeY = data.y;
+  });
+
+  console.log("✅ WebGazer ready.");
 }
 
-/**
- * Compute the arithmetic mean of a list of 2D points.
- * @param {Array<Array<number>>} pts
- */
-function avg(pts) {
-  const sum = pts.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
-  return [sum[0] / pts.length, sum[1] / pts.length];
-}
-
-/**
- * Compute the average vertical gap between matched top and bottom facial
- * landmark indices.  This is used to derive the eyelid separation,
- * similar to mouth logic.
- *
- * @param {Array<Array<number>>} mesh
- * @param {Array<number>} topIndices
- * @param {Array<number>} bottomIndices
- */
-function regionGap(mesh, topIndices, bottomIndices) {
-  const n = Math.min(topIndices.length, bottomIndices.length);
-  let sum = 0;
-  for (let i = 0; i < n; i++) {
-    sum += Math.abs(mesh[topIndices[i]][1] - mesh[bottomIndices[i]][1]);
-  }
-  return sum / n;
-}
-
-/**
- * Measure the relative brightness of the current offscreen frame.  Returns
- * a value in the range [0, 1], where 0 is dark and 1 is bright.
- */
+// -----------------------------------------------------
+// brightness helper
+// -----------------------------------------------------
 function measureFrameBrightness() {
   const frame = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
   const data = frame.data;
@@ -164,132 +136,183 @@ function measureFrameBrightness() {
   return (total / pixels) / 255;
 }
 
-/**
- * Dynamically adjust brightness and contrast factors based on measured
- * scene luminance.  Brighter scenes yield lower multipliers, while
- * darker scenes are boosted.
- *
- * @param {number} brightnessMeas 0–1 normalized luminance
- */
-function adaptLighting(brightnessMeas) {
-  if (brightnessMeas < 0.30) {
-    brightnessFactor = 1.8;
+function adaptLighting(b) {
+  if (b < 0.30) {
+    brightnessFactor = 1.85;
     contrastFactor = 1.4;
-  } else if (brightnessMeas < 0.50) {
+  } else if (b < 0.5) {
     brightnessFactor = 1.5;
-    contrastFactor = 1.3;
-  } else if (brightnessMeas > 0.80) {
+    contrastFactor = 1.25;
+  } else if (b > 0.85) {
     brightnessFactor = 1.0;
     contrastFactor = 1.0;
   } else {
     brightnessFactor = 1.2;
-    contrastFactor = 1.2;
+    contrastFactor = 1.1;
   }
 }
 
-/**
- * Load WebGazer dynamically and set up gaze listener.  Once loaded it
- * continuously updates the global gazeX/Y variables.  Smoothing occurs
- * in the render loop.
- */
-function loadWebGazer() {
-  if (window.webgazer) {
-    startWebGazer();
-  } else {
-    const script = document.createElement("script");
-    script.src = "https://webgazer.cs.brown.edu/webgazer.js";
-    script.onload = () => startWebGazer();
-    document.head.appendChild(script);
-  }
+// -----------------------------------------------------
+// init
+// -----------------------------------------------------
+async function init() {
+  cursor = document.getElementById("cursor");
+  // ensure cursor is fixed so window coords work
+  cursor.style.position = "fixed";
+  cursor.style.left = "50%";
+  cursor.style.top = "50%";
+  cursor.style.zIndex = "9999";
+
+  await setupCamera();
+
+  canvas = document.getElementById("overlay");
+  ctx = canvas.getContext("2d");
+
+  offCanvas = document.createElement("canvas");
+  offCtx = offCanvas.getContext("2d");
+
+  resize();
+  window.addEventListener("resize", resize);
+
+  // load facemesh
+  model = await facemesh.load();
+  console.log("✅ FaceMesh loaded");
+
+  // start webgazer
+  loadWebGazer();
+
+  requestAnimationFrame(render);
 }
 
-function startWebGazer() {
-  console.log("🎯 WebGazer starting...");
-  webgazer.setRegression("ridge")
-          .setTracker("clmtrackr")
-          .begin();
-  webgazer.showVideoPreview(false)
-          .showPredictionPoints(false)
-          .applyKalmanFilter(true);
-  webgazer.setGazeListener((data) => {
-    if (!data) return;
-    gazeX = data.x;
-    gazeY = data.y;
-  });
-  console.log("✅ WebGazer ready.  Perform calibration if prompted.");
+function resize() {
+  const w = video.videoWidth || 1280;
+  const h = video.videoHeight || 720;
+  canvas.width = w;
+  canvas.height = h;
+  offCanvas.width = w;
+  offCanvas.height = h;
 }
 
-/**
- * Primary render loop.  Handles brightness adaptation, FaceMesh
- * prediction, blink detection and beep, and cursor motion.
- */
+// -----------------------------------------------------
+// main loop
+// -----------------------------------------------------
 async function render() {
-  // Draw a raw frame to offscreen canvas for brightness measurement
+  // 1) draw raw frame
   offCtx.filter = "";
   offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
-  const luminance = measureFrameBrightness();
-  adaptLighting(luminance);
-  // Apply brightness/contrast filter for the model input
+
+  // 2) measure brightness, adapt, redraw with filter
+  const lum = measureFrameBrightness();
+  adaptLighting(lum);
   offCtx.filter = `brightness(${brightnessFactor}) contrast(${contrastFactor})`;
   offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
 
+  // 3) run facemesh
   const faces = await model.estimateFaces(offCanvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (faces.length > 0) {
     const face = faces[0];
-    const keypoints = face.scaledMesh;
-    // Draw landmarks for debugging
-    ctx.fillStyle = "rgba(0,255,0,0.6)";
-    for (const [x, y] of keypoints) ctx.fillRect(x, y, 2, 2);
+    const k = face.scaledMesh;
 
-    // Eye gap indices for blink detection
+    // draw landmarks
+    ctx.fillStyle = "rgba(0,255,0,0.6)";
+    for (const [x, y] of k) ctx.fillRect(x, y, 2, 2);
+
+    // --- EYE GAP (blink) ---
     const leftTop = [159, 160, 161, 246];
     const leftBot = [145, 144, 153, 154];
     const rightTop = [386, 385, 384, 398];
     const rightBot = [374, 373, 380, 381];
-    const leftGap = regionGap(keypoints, leftTop, leftBot);
-    const rightGap = regionGap(keypoints, rightTop, rightBot);
-    const eyeAvg = (leftGap + rightGap) / 2;
 
-    // Blink baseline calibration over first ~60 frames
-    if (!baselineReady) {
-      baselineSamples.push(eyeAvg);
-      if (baselineSamples.length > 60) {
-        blinkBaseline = baselineSamples.reduce((a, b) => a + b, 0) / baselineSamples.length;
-        baselineReady = true;
-        console.log("Blink baseline set:", blinkBaseline.toFixed(3));
+    const eyeGap = (gapRegion(k, leftTop, leftBot) + gapRegion(k, rightTop, rightBot)) / 2;
+
+    // --- MOUTH GAP (mouth open click) ---
+    // using central mouth points
+    const mouthTopIdx = [13, 82, 312];    // upper lip band
+    const mouthBotIdx = [14, 87, 317];    // lower lip band
+    const mouthGap = gapRegion(k, mouthTopIdx, mouthBotIdx);
+
+    // calibration
+    if (!blinkReady) {
+      blinkSamples.push(eyeGap);
+      if (blinkSamples.length > 50) {
+        blinkBaseline = blinkSamples.reduce((a, b) => a + b, 0) / blinkSamples.length;
+        blinkReady = true;
+        console.log("Blink baseline:", blinkBaseline.toFixed(3));
       }
-    } else {
-      // Determine blink threshold as a fraction of open‑eye baseline
+    }
+
+    if (!mouthReady) {
+      mouthSamples.push(mouthGap);
+      if (mouthSamples.length > 50) {
+        mouthBaseline = mouthSamples.reduce((a, b) => a + b, 0) / mouthSamples.length;
+        mouthReady = true;
+        console.log("Mouth baseline:", mouthBaseline.toFixed(3));
+      }
+    }
+
+    // after calibration → detect
+    if (blinkReady) {
       const blinkThreshold = blinkBaseline * 0.65;
-      const blink = eyeAvg < blinkThreshold;
-      // Visual eyelid indicator
-      ctx.strokeStyle = "rgba(255,255,0,0.5)";
-      ctx.beginPath();
-      ctx.moveTo(keypoints[159][0], keypoints[159][1]);
-      ctx.lineTo(keypoints[145][0], keypoints[145][1]);
-      ctx.moveTo(keypoints[386][0], keypoints[386][1]);
-      ctx.lineTo(keypoints[374][0], keypoints[374][1]);
-      ctx.stroke();
-      if (blink && Date.now() - lastBlink > 700) {
-        lastBlink = Date.now();
-        cursor.style.background = "rgba(255,0,0,0.8)";
-        playBeep(444, 0.2);
-        setTimeout(() => (cursor.style.background = "rgba(0,255,0,0.6)"), 250);
-        console.log("👁 Blink detected");
+      const isBlink = eyeGap < blinkThreshold;
+      drawEyeLines(ctx, k);
+      if (isBlink) {
+        doClickFeedback();
+      }
+    }
+
+    if (mouthReady) {
+      // mouth open when > 1.6x normal relaxed mouth
+      const mouthThreshold = mouthBaseline * 1.6;
+      if (mouthGap > mouthThreshold) {
+        doClickFeedback();
       }
     }
   }
-  // Smooth gaze to cursor position
-  const smoothing = 0.2;
-  smoothX += (gazeX - smoothX) * smoothing;
-  smoothY += (gazeY - smoothY) * smoothing;
-  cursor.style.left = `${smoothX}px`;
-  cursor.style.top = `${smoothY}px`;
+
+  // 4) move cursor from webgazer
+  // if webgazer hasn't given us a coord yet, keep last / center
+  const viewW = window.innerWidth;
+  const viewH = window.innerHeight;
+  const targetX = gazeX != null ? gazeX : viewW / 2;
+  const targetY = gazeY != null ? gazeY : viewH / 2;
+
+  const smoothing = 0.20;
+  smoothX += (targetX - smoothX) * smoothing;
+  smoothY += (targetY - smoothY) * smoothing;
+
+  // clamp to viewport
+  const clampedX = Math.min(Math.max(0, smoothX), viewW - 10);
+  const clampedY = Math.min(Math.max(0, smoothY), viewH - 10);
+
+  if (cursor) {
+    cursor.style.left = clampedX + "px";
+    cursor.style.top = clampedY + "px";
+  }
 
   requestAnimationFrame(render);
 }
 
-// Start everything
-init();
+// helper like your regionGap but kept local
+function gapRegion(mesh, topArr, botArr) {
+  const n = Math.min(topArr.length, botArr.length);
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    s += Math.abs(mesh[topArr[i]][1] - mesh[botArr[i]][1]);
+  }
+  return s / n;
+}
+
+function drawEyeLines(ctx, k) {
+  ctx.strokeStyle = "rgba(255,255,0,0.5)";
+  ctx.beginPath();
+  ctx.moveTo(k[159][0], k[159][1]);
+  ctx.lineTo(k[145][0], k[145][1]);
+  ctx.moveTo(k[386][0], k[386][1]);
+  ctx.lineTo(k[374][0], k[374][1]);
+  ctx.stroke();
+}
+
+// -----------------------------------------------------
+init().catch(err => console.error(err));
