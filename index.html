@@ -3,43 +3,61 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Eye-Gaze Tracker</title>
-
-  <!-- ✅ Latest TF + Face Landmarks Detection -->
-<!-- TensorFlow core -->
+  <title>Assistive Eye‑Gaze Tracker</title>
+  <!--
+    This page implements a fully self‑contained eye‑tracking prototype.
+    It loads TensorFlow.js and the lightweight FaceMesh model to detect
+    facial landmarks for blinking and validation, while WebGazer.js is
+    loaded asynchronously by the accompanying script for gaze‑based cursor
+    control.  The video feed is mirrored for a natural, “mirror mode”
+    experience.  A floating cursor indicator is positioned based on
+    gaze and flashes red on blink to signal a click event.  Brightness
+    and contrast are adjusted on the fly to maintain reliable detection
+    in varying lighting conditions.
+  -->
+  <!-- TensorFlow core and FaceMesh model -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
-
-<!-- MediaPipe FaceMesh backend -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.min.js"></script>
-
-<!-- ✅ TensorFlow Face Landmarks Detection (global namespace compatible) -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@0.0.5/dist/face-landmarks-detection.min.js"></script>
-
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.4/dist/facemesh.min.js"></script>
 
   <style>
-    body,html {margin:0;padding:0;overflow:hidden;background:#000;}
-    #video, #overlay {
-      position:fixed;
-      top:0; left:0;
-      width:100vw; height:100vh;
-      object-fit:cover;
-      transform:scaleX(-1); /* mirror so it feels natural */
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
     }
+    /* Mirror the feed so the user’s left corresponds to screen left */
+    #video, #overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+    /* Floating cursor that tracks gaze and blinks red on click */
     #cursor {
-      position:fixed;
-      width:20px; height:20px;
-      border-radius:50%;
-      background:rgba(0,255,0,0.6);
-      pointer-events:none;
-      transform:translate(-50%,-50%);
+      position: fixed;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(0, 255, 0, 0.6);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      z-index: 100;
+      transition: background 0.15s ease;
     }
   </style>
 </head>
 <body>
+  <!-- The mirrored video feed from the user’s webcam -->
   <video id="video" autoplay muted playsinline></video>
+  <!-- Canvas used to render facial landmarks and debug information -->
   <canvas id="overlay"></canvas>
+  <!-- Cursor indicator driven by gaze / blink events -->
   <div id="cursor"></div>
-
-  <script src="./script.js"></script>
+  <!-- Main application logic -->
+  <script src="script.js"></script>
 </body>
 </html>
