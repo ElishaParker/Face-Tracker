@@ -127,4 +127,3 @@ async function render() {
 }
 
 init();
-
