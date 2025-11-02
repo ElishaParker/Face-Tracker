@@ -191,47 +191,58 @@ async function render() {
     }
 
     // ========== FACEMESH FALLBACK GAZE ==========
-    const nose = k[1];
-    const leftIris = (k[468] && k[469] && k[470] && k[471])
-      ? [
-          (k[468][0] + k[469][0] + k[470][0] + k[471][0]) / 4,
-          (k[468][1] + k[469][1] + k[470][1] + k[471][1]) / 4
-        ]
-      : (k[159] ? [k[159][0], k[159][1]] : null);
-    const rightIris = (k[473] && k[474] && k[475] && k[476])
-      ? [
-          (k[473][0] + k[474][0] + k[475][0] + k[476][0]) / 4,
-          (k[473][1] + k[474][1] + k[475][1] + k[476][1]) / 4
-        ]
-      : (k[386] ? [k[386][0], k[386][1]] : null);
+    // ========== FACEMESH FALLBACK GAZE ==========
+const nose = k[1];
+const leftIris = (k[468] && k[469] && k[470] && k[471])
+  ? [
+      (k[468][0] + k[469][0] + k[470][0] + k[471][0]) / 4,
+      (k[468][1] + k[469][1] + k[470][1] + k[471][1]) / 4
+    ]
+  : (k[159] ? [k[159][0], k[159][1]] : null);
+const rightIris = (k[473] && k[474] && k[475] && k[476])
+  ? [
+      (k[473][0] + k[474][0] + k[475][0] + k[476][0]) / 4,
+      (k[473][1] + k[474][1] + k[475][1] + k[476][1]) / 4
+    ]
+  : (k[386] ? [k[386][0], k[386][1]] : null);
 
-    let fbX = canvas.width / 2;
-    let fbY = canvas.height / 2;
+let fbX = canvas.width / 2;
+let fbY = canvas.height / 2;
 
-    if (nose && leftIris && rightIris) {
-      const irisX = (leftIris[0] + rightIris[0]) / 2;
-      const irisY = (leftIris[1] + rightIris[1]) / 2;
+if (nose && leftIris && rightIris) {
+  const irisX = (leftIris[0] + rightIris[0]) / 2;
+  const irisY = (leftIris[1] + rightIris[1]) / 2;
 
-      const leftFace  = k[234] || nose;
-      const rightFace = k[454] || nose;
-      const topFace   = k[10]  || nose;
-      const botFace   = k[152] || nose;
+  const leftFace  = k[234] || nose;
+  const rightFace = k[454] || nose;
+  const topFace   = k[10]  || nose;
+  const botFace   = k[152] || nose;
 
-      const faceW = Math.max(40, (rightFace[0] - leftFace[0]));
-      const faceH = Math.max(50, (botFace[1]   - topFace[1]));
+  const faceW = Math.max(40, (rightFace[0] - leftFace[0]));
+  const faceH = Math.max(50, (botFace[1]   - topFace[1]));
 
-      let ndx = (irisX - nose[0]) / faceW;
-      let ndy = (irisY - nose[1]) / faceH;
+  // normalized offsets
+  let ndx = (irisX - nose[0]) / faceW;
+  let ndy = (irisY - nose[1]) / faceH;
 
-      const H_GAIN = 2.2;
-      const V_GAIN = 2.0;
+  // ✅ 1) vertical is backwards → flip it
+  ndy = -ndy;
 
-      fbX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN;
-      fbY = canvas.height / 2 + ndy * canvas.height * V_GAIN;
+  // ✅ 2) eyes usually sit a bit below nose in 2D → subtract small neutral
+  const V_NEUTRAL = 0.03;   // tweak 0.02–0.06
+  ndy -= V_NEUTRAL;
 
-      fbX = Math.max(0, Math.min(canvas.width,  fbX));
-      fbY = Math.max(0, Math.min(canvas.height, fbY));
-    }
+  const H_GAIN = 2.2;
+  const V_GAIN = 2.0;
+
+  fbX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN;
+  fbY = canvas.height / 2 - ndy * canvas.height * V_GAIN; // note the "-" now
+
+  // clamp
+  fbX = Math.max(0, Math.min(canvas.width,  fbX));
+  fbY = Math.max(0, Math.min(canvas.height, fbY));
+}
+
 
     // ========== PICK SOURCE ==========
     const now = performance.now();
