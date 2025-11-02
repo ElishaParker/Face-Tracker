@@ -18,7 +18,6 @@ async function init() {
   resize();
   window.addEventListener('resize', resize);
 
-  // ✅ Load facemesh model
   model = await facemesh.load();
 
   render();
@@ -37,35 +36,38 @@ async function render() {
     const keypoints = predictions[0].scaledMesh;
     const face = predictions[0];
 
-    // Draw all landmarks
+    // Draw mesh landmarks (optional)
     ctx.fillStyle = 'rgba(0,255,0,0.5)';
     for (const [x, y] of keypoints) {
       ctx.fillRect(x, y, 2, 2);
     }
 
-    // ✅ Eye tracking
-    let leftEye, rightEye;
-    if (face.annotations && face.annotations.leftEyeUpper0 && face.annotations.rightEyeUpper0) {
-      const leftPts = face.annotations.leftEyeUpper0;
-      const rightPts = face.annotations.rightEyeUpper0;
-      leftEye = leftPts[Math.floor(leftPts.length / 2)];
-      rightEye = rightPts[Math.floor(rightPts.length / 2)];
-    } else {
-      leftEye = keypoints[159];
-      rightEye = keypoints[386];
-    }
+    // ✅ Estimate eye gaze (left eye only)
+    if (face.annotations?.leftEye && face.annotations?.leftEyeUpper0 && face.annotations?.leftEyeLower0) {
+      const eyeInner = face.annotations.leftEye[3]; // inner corner
+      const eyeOuter = face.annotations.leftEye[0]; // outer corner
+      const upperMid = face.annotations.leftEyeUpper0[3];
+      const lowerMid = face.annotations.leftEyeLower0[4];
 
-    if (leftEye && rightEye) {
-      const dx = (leftEye[0] + rightEye[0]) / 2;
-      const dy = (leftEye[1] + rightEye[1]) / 2;
+      const eyeCenterX = (eyeInner[0] + eyeOuter[0]) / 2;
+      const eyeCenterY = (upperMid[1] + lowerMid[1]) / 2;
 
-      cursor.style.left = `${dx}px`;
-      cursor.style.top = `${dy}px`;
+      const eyeWidth = Math.abs(eyeOuter[0] - eyeInner[0]);
+      const eyeHeight = Math.abs(upperMid[1] - lowerMid[1]);
+
+      const normX = (eyeCenterX - eyeOuter[0]) / eyeWidth;
+      const normY = (eyeCenterY - upperMid[1]) / eyeHeight;
+
+      const gazeX = canvas.width - (normX * canvas.width); // flip X
+      const gazeY = normY * canvas.height;
+
+      cursor.style.left = `${gazeX}px`;
+      cursor.style.top = `${gazeY}px`;
     }
 
     // ✅ Blink detection
     let eyeTopY, eyeBottomY;
-    if (face.annotations && face.annotations.leftEyeUpper0 && face.annotations.leftEyeLower0) {
+    if (face.annotations.leftEyeUpper0 && face.annotations.leftEyeLower0) {
       const upper = face.annotations.leftEyeUpper0;
       const lower = face.annotations.leftEyeLower0;
       eyeTopY = upper.reduce((a, p) => a + p[1], 0) / upper.length;
@@ -85,7 +87,6 @@ async function render() {
     }
   }
 
-  // ✅ Continue the render loop
   requestAnimationFrame(render);
 }
 
