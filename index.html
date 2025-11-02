@@ -3,26 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Eye Tracker Demo</title>
+  <title>True Mirror Eye Tracker</title>
   <link rel="stylesheet" href="style.css" />
-
-  <!-- ✅ TensorFlow Core -->
-  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
-
-  <!-- ✅ Face-Landmarks-Detection model (Stable) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@1.0.1/dist/face-landmarks-detection.min.js"></script>
-
-  <!-- ✅ Your working script -->
   <script defer src="script.js"></script>
 </head>
 <body>
-  <!-- 👁️ Live camera feed -->
   <video id="video" autoplay playsinline muted></video>
-
-  <!-- 🟩 Drawing layer -->
   <canvas id="overlay"></canvas>
-
-  <!-- 🟢 Cursor indicator -->
   <div id="cursor"></div>
 </body>
 </html>
