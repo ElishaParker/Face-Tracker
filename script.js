@@ -229,7 +229,7 @@ if (nose && leftIris && rightIris) {
   ndy = -ndy;
 
   // ✅ 2) eyes usually sit a bit below nose in 2D → subtract small neutral
-  const V_NEUTRAL = 0.03;   // tweak 0.02–0.06
+  const V_NEUTRAL = 0.1;   // tweak 0.02–0.06
   ndy -= V_NEUTRAL;
 
   const H_GAIN = 2.2;
