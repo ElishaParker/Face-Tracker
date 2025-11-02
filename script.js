@@ -1,5 +1,8 @@
 // =====================================================
-// Assistive Eye-Gaze Tracker (clean, no dim–light filter)
+// Assistive Eye-Gaze Tracker (face-size normalized)
+// - FaceMesh for landmarks
+// - Mouth-open (or blink once we’re happy) -> click beep
+// - Pure JS, no mouse hijack, just green cursor div
 // =====================================================
 
 let model, video, canvas, ctx;
@@ -9,21 +12,21 @@ let offCanvas, offCtx;
 let smoothX = 0, smoothY = 0;
 let lastClick = 0;
 
-// auto-center (assume user looks center at start)
+// ---- gaze calibration ----
 let centerDX = 0, centerDY = 0;
 let centerFrames = 0;
-const CENTER_FRAMES_NEEDED = 30;
+const CENTER_FRAMES_NEEDED = 30; // ~0.5s
 
-// blink baseline
+// ---- click baseline ----
 let eyeBaseline = null;
 let eyeBaselineReady = false;
 const eyeSamples = [];
 
-// sensitivity
-const H_GAIN = 1.8;  // left/right
-const V_GAIN = 1.6;  // up/down
+// tweak these to make it move more/less
+const H_GAIN = 3;   // horizontal sensitivity
+const V_GAIN = 3;   // vertical sensitivity
 
-// ---- audio click ----
+// --- audio click ---
 function playBeep(f = 444, d = 0.15) {
   const a = new (window.AudioContext || window.webkitAudioContext)();
   const o = a.createOscillator();
@@ -32,13 +35,11 @@ function playBeep(f = 444, d = 0.15) {
   o.frequency.value = f;
   g.gain.setValueAtTime(0.25, a.currentTime);
   g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + d);
-  o.connect(g);
-  g.connect(a.destination);
-  o.start();
-  o.stop(a.currentTime + d);
+  o.connect(g); g.connect(a.destination);
+  o.start(); o.stop(a.currentTime + d);
 }
 
-// try exposure if supported
+// try to open the camera a bit
 async function setupCamera() {
   video = document.getElementById("video");
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -46,11 +47,12 @@ async function setupCamera() {
       width: { ideal: 1280 },
       height: { ideal: 720 },
       facingMode: "user",
+      // browsers will ignore this if they can’t do it
       advanced: [{ exposureMode: "continuous" }]
     }
   });
   video.srcObject = stream;
-  await new Promise(r => (video.onloadedmetadata = r));
+  await new Promise(r => video.onloadedmetadata = r);
 }
 
 async function init() {
@@ -66,7 +68,6 @@ async function init() {
   resize();
   window.addEventListener("resize", resize);
 
-  // tfjs facemesh
   model = await facemesh.load();
   console.log("✅ FaceMesh loaded");
 
@@ -82,7 +83,7 @@ function resize() {
   offCanvas.height = h;
 }
 
-// average vertical gap
+// utility: average vertical gap between two landmark groups
 function regionGap(mesh, topArr, botArr) {
   const n = Math.min(topArr.length, botArr.length);
   let s = 0;
@@ -92,18 +93,13 @@ function regionGap(mesh, topArr, botArr) {
   return s / n;
 }
 
-// simple avg
-function avgPoints(arr) {
-  let sx = 0, sy = 0;
-  for (const p of arr) {
-    sx += p[0];
-    sy += p[1];
-  }
-  return [sx / arr.length, sy / arr.length];
-}
-
 async function render() {
-  // just draw raw video frame
+  // draw original frame
+  offCtx.filter = "";
+  offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
+
+  // boost for dim rooms
+  offCtx.filter = "brightness(.5) contrast(.5)";
   offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
 
   const faces = await model.estimateFaces(offCanvas);
@@ -113,31 +109,31 @@ async function render() {
     const f = faces[0];
     const k = f.scaledMesh;
 
-    // draw mesh
+    // draw landmarks so we can see what’s happening
     ctx.fillStyle = "rgba(0,255,0,0.6)";
     for (const [x, y] of k) ctx.fillRect(x, y, 2, 2);
 
-    // face size refs
-    const leftFace = k[234];
-    const rightFace = k[454];
-    const topFace = k[10];
-    const bottomFace = k[152];
+    // ---- face size references ----
+    const leftFace = k[234];   // left cheek
+    const rightFace = k[454];  // right cheek
+    const topFace = k[10];     // forehead
+    const bottomFace = k[152]; // chin
     const nose = k[1];
 
-    const faceW = Math.max(40, rightFace[0] - leftFace[0]);
+    const faceW = Math.max(40, rightFace[0] - leftFace[0]); // clamp so we never divide by tiny
     const faceH = Math.max(60, bottomFace[1] - topFace[1]);
 
-    // iris centers
+    // ---- iris centers ----
     const leftIris = avgPoints(k.slice(468, 472));
     const rightIris = avgPoints(k.slice(473, 477));
     const irisX = (leftIris[0] + rightIris[0]) / 2;
     const irisY = (leftIris[1] + rightIris[1]) / 2;
 
-    // normalized offsets (iris vs nose)
-    let dx = (irisX - nose[0]) / faceW;
-    let dy = (irisY - nose[1]) / faceH;
+    // ---- raw offsets, normalized by face size ----
+    let dx = (irisX - nose[0]) / faceW;   // left/right
+    let dy = (irisY - nose[1]) / faceH;   // up/down
 
-    // auto-center first frames
+    // ---- auto-center in the first frames ----
     if (centerFrames < CENTER_FRAMES_NEEDED) {
       centerDX += dx;
       centerDY += dy;
@@ -146,14 +142,15 @@ async function render() {
     const cX = centerFrames ? centerDX / centerFrames : 0;
     const cY = centerFrames ? centerDY / centerFrames : 0;
 
-    dx -= cX;
-    dy -= cY;
+    // subtract calibrated center
+    dx = dx - cX;
+    dy = dy - cY;
 
-    // map to canvas
+    // scale to screen/canvas
     let targetX = canvas.width / 2 - dx * canvas.width * H_GAIN;
     let targetY = canvas.height / 2 + dy * canvas.height * V_GAIN;
 
-    // clamp
+    // clamp so we don’t lose the dot
     targetX = Math.max(0, Math.min(canvas.width, targetX));
     targetY = Math.max(0, Math.min(canvas.height, targetY));
 
@@ -161,11 +158,15 @@ async function render() {
     smoothX += (targetX - smoothX) * 0.2;
     smoothY += (targetY - smoothY) * 0.2;
 
-    // mirror horizontally
+    // mirror horizontally so it feels natural
     cursor.style.left = `${canvas.width - smoothX}px`;
     cursor.style.top = `${smoothY}px`;
 
-    // ------------- blink / click -------------
+    // =========================
+    // mouth / eye "click" logic
+    // =========================
+
+    // use multi-landmark eyelid gap (same as before)
     const leftTop = [159, 160, 161, 246];
     const leftBot = [145, 144, 153, 154];
     const rightTop = [386, 385, 384, 398];
@@ -175,7 +176,7 @@ async function render() {
     const rightGap = regionGap(k, rightTop, rightBot);
     const eyeGap = (leftGap + rightGap) / 2;
 
-    // eye lines for debug
+    // draw little eye lines so we can see
     ctx.strokeStyle = "rgba(255,255,0,0.5)";
     ctx.beginPath();
     ctx.moveTo(k[159][0], k[159][1]); ctx.lineTo(k[145][0], k[145][1]);
@@ -190,21 +191,29 @@ async function render() {
         console.log("👁 eye baseline:", eyeBaseline.toFixed(3));
       }
     } else {
-      const blinkThresh = eyeBaseline * 0.55; // tighter
+      const blinkThresh = eyeBaseline * 0.55; // tighter than 0.65
       const isBlink = eyeGap < blinkThresh;
+
       if (isBlink && Date.now() - lastClick > 750) {
         lastClick = Date.now();
         cursor.style.background = "rgba(255,0,0,0.85)";
         playBeep();
-        setTimeout(() => {
-          cursor.style.background = "rgba(0,255,0,0.6)";
-        }, 220);
+        setTimeout(() => cursor.style.background = "rgba(0,255,0,0.6)", 220);
         console.log("✅ gaze-click");
       }
     }
   }
 
   requestAnimationFrame(render);
+}
+
+// simple helper
+function avgPoints(arr) {
+  let sx = 0, sy = 0;
+  for (const p of arr) {
+    sx += p[0]; sy += p[1];
+  }
+  return [sx / arr.length, sy / arr.length];
 }
 
 init();
