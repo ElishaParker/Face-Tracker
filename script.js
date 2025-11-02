@@ -1,55 +1,45 @@
 // =====================================================
-// Assistive Eye-Gaze Tracker (FaceMesh + WebGazer)
+// Assistive Gaze + Mouth-Click Tracker
+// v3 – facemesh (for mouth click) + WebGazer (for cursor)
 // =====================================================
 
 let model, video, canvas, ctx;
 let cursor;
 let offCanvas, offCtx;
 
-let lastBlinkOrMouth = 0;
+// --- WebGazer state ---
+let gazeX = null, gazeY = null;
+let lastGazeTs = 0;
+let webgazerReady = false;
 
-// ---- gaze values (from webgazer, in window space) ----
-let gazeWinX = null;
-let gazeWinY = null;
-
-// ---- smoothed, canvas-space cursor ----
-let smoothX = 0;
-let smoothY = 0;
-
-// ---- eye blink baseline ----
-let eyeBaseline = null;
-let eyeBaselineSamples = [];
-let eyeBaselineReady = false;
-
-// ---- mouth baseline ----
+// --- mouth detection state ---
 let mouthBaseline = null;
-let mouthBaselineSamples = [];
-let mouthBaselineReady = false;
+let mouthSamples = [];
+let mouthReady = false;
+let lastClickTs = 0;
 
-// ---- lighting adaption ----
-let brightnessFactor = 1.25;
-let contrastFactor = 1.15;
+// --- smoothing for cursor ---
+let smoothX = 0, smoothY = 0;
 
-// =====================================================
-// small 444 Hz beep
-// =====================================================
-function playBeep(f = 444, d = 0.15) {
+// --- lighting ---
+let brightnessFactor = 1.3;
+let contrastFactor = 1.2;
+
+// ===== beep on click =====
+function playBeep(freq = 444, dur = 0.14) {
   const ac = new (window.AudioContext || window.webkitAudioContext)();
   const osc = ac.createOscillator();
-  const gain = ac.createGain();
+  const g = ac.createGain();
   osc.type = "sine";
-  osc.frequency.value = f;
-  gain.gain.setValueAtTime(0.25, ac.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + d);
-  osc.connect(gain);
-  gain.connect(ac.destination);
+  osc.frequency.value = freq;
+  g.gain.setValueAtTime(0.18, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+  osc.connect(g); g.connect(ac.destination);
   osc.start();
-  osc.stop(ac.currentTime + d);
+  osc.stop(ac.currentTime + dur);
 }
 
-// =====================================================
-// camera
-// =====================================================
+// ===== camera =====
 async function setupCamera() {
   video = document.getElementById("video");
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -63,147 +53,129 @@ async function setupCamera() {
   await new Promise(r => (video.onloadedmetadata = r));
 }
 
-// =====================================================
-// init
-// =====================================================
-async function init() {
-  cursor = document.getElementById("cursor");
-  await setupCamera();
-
-  canvas = document.getElementById("overlay");
-  ctx = canvas.getContext("2d");
-
-  offCanvas = document.createElement("canvas");
-  offCtx = offCanvas.getContext("2d");
-
-  resize();
-  window.addEventListener("resize", resize);
-
-  // load facemesh (the one you were using before)
-  model = await facemesh.load();
-  console.log("✅ FaceMesh loaded");
-
-  // start webgazer
-  loadWebgazer();
-
-  // start loop
-  requestAnimationFrame(render);
-}
-
+// ===== resize =====
 function resize() {
-  const w = video.videoWidth || 640;
-  const h = video.videoHeight || 480;
+  const w = video.videoWidth || 1280;
+  const h = video.videoHeight || 720;
   canvas.width = w;
   canvas.height = h;
   offCanvas.width = w;
   offCanvas.height = h;
 }
 
-// =====================================================
-// helper: average of points
-// =====================================================
-function avg(pts) {
-  const s = pts.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
-  return [s[0] / pts.length, s[1] / pts.length];
-}
-
-// =====================================================
-// measure frame brightness and adapt
-// =====================================================
-function measureBrightness() {
+// ===== measure frame brightness =====
+function measureFrameBrightness() {
   const img = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
-  const data = img.data;
-  let total = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    total += (data[i] + data[i + 1] + data[i + 2]) / 3;
+  const d = img.data;
+  let t = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    t += (d[i] + d[i + 1] + d[i + 2]) / 3;
   }
-  const pixels = data.length / 4;
-  const lum = (total / pixels) / 255;
-  return lum;
+  return (t / (d.length / 4)) / 255;
 }
 
-function adaptLighting(lum) {
-  if (lum < 0.3) {
-    brightnessFactor = 1.8;
+function adaptLighting(br) {
+  if (br < 0.3) {
+    brightnessFactor = 1.9;
     contrastFactor = 1.35;
-  } else if (lum < 0.5) {
+  } else if (br < 0.5) {
     brightnessFactor = 1.5;
     contrastFactor = 1.25;
-  } else if (lum > 0.85) {
+  } else if (br > 0.85) {
     brightnessFactor = 1.0;
     contrastFactor = 1.0;
   } else {
     brightnessFactor = 1.25;
-    contrastFactor = 1.15;
+    contrastFactor = 1.2;
   }
 }
 
-// =====================================================
-// WEBGAZER
-// =====================================================
-function loadWebgazer() {
+// ===== start webgazer =====
+function startWebGazer() {
+  if (!window.webgazer) return;
+  console.log("🎯 WebGazer starting…");
+  window.webgazer
+    .setRegression("ridge")
+    .setTracker("clmtrackr")
+    .begin();
+
+  // hide its own UI
+  window.webgazer.showPredictionPoints(false);
+  window.webgazer.showVideoPreview(false);
+
+  window.webgazer.setGazeListener((data, ts) => {
+    if (!data) return;
+    // WebGazer gives page coords already
+    gazeX = data.x;
+    gazeY = data.y;
+    lastGazeTs = ts;
+    webgazerReady = true;
+  });
+
+  console.log("✅ WebGazer ready (needs a few seconds of you looking around)");
+}
+
+// if webgazer.js not on page -> load it
+function ensureWebGazer() {
   if (window.webgazer) {
-    startWebgazer();
+    startWebGazer();
   } else {
     const s = document.createElement("script");
     s.src = "https://webgazer.cs.brown.edu/webgazer.js";
-    s.onload = () => startWebgazer();
+    s.onload = () => startWebGazer();
     document.head.appendChild(s);
   }
 }
 
-function startWebgazer() {
-  console.log("🎯 starting webgazer…");
-  webgazer
-    .setRegression("ridge")
-    .setTracker("clmtrackr")
-    .showVideoPreview(true)     // keep on so you can see its box
-    .showPredictionPoints(false)
-    .applyKalmanFilter(true)
-    .begin();
+// ===== main init =====
+async function init() {
+  cursor = document.getElementById("cursor");
+  await setupCamera();
 
-  // auto-calibrate by feeding a few synthetic points
-  // so we’re not stuck at the center
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const fakePts = [
-    [w * 0.1, h * 0.1],
-    [w * 0.9, h * 0.1],
-    [w * 0.1, h * 0.9],
-    [w * 0.9, h * 0.9],
-    [w * 0.5, h * 0.5],
-    [w * 0.5, h * 0.1],
-    [w * 0.5, h * 0.9],
-    [w * 0.1, h * 0.5],
-    [w * 0.9, h * 0.5],
-  ];
-  fakePts.forEach(([x, y]) => {
-    // this is how webgazer stores calibration data
-    webgazer.recordScreenPosition(x, y, "click");
-  });
+  canvas = document.getElementById("overlay");
+  ctx = canvas.getContext("2d");
+  offCanvas = document.createElement("canvas");
+  offCtx = offCanvas.getContext("2d");
 
-  webgazer.setGazeListener((data) => {
-    if (!data) return;
-    gazeWinX = data.x;
-    gazeWinY = data.y;
-  });
+  resize();
+  window.addEventListener("resize", resize);
 
-  console.log("✅ webgazer ready (synthetic calibration added)");
+  // facemesh
+  model = await facemesh.load();
+  console.log("✅ FaceMesh loaded");
+
+  // webgazer
+  ensureWebGazer();
+
+  requestAnimationFrame(render);
 }
 
-// =====================================================
-// main loop
-// =====================================================
+// ===== mouth gap (using annotations if present) =====
+function getMouthGap(face) {
+  if (face.annotations && face.annotations.lipsUpperInner && face.annotations.lipsLowerInner) {
+    const up = face.annotations.lipsUpperInner;
+    const lo = face.annotations.lipsLowerInner;
+    const upY = up.reduce((a, p) => a + p[1], 0) / up.length;
+    const loY = lo.reduce((a, p) => a + p[1], 0) / lo.length;
+    return loY - upY;
+  }
+  // fallback to some mesh points
+  const mTop = face.scaledMesh[13];  // approx upper lip
+  const mBot = face.scaledMesh[14] || face.scaledMesh[17]; // approx lower
+  return Math.abs(mBot[1] - mTop[1]);
+}
+
+// ===== render loop =====
 async function render() {
-  // 1) draw frame → offscreen
+  // 1) pull video -> offscreen -> measure light -> re-draw with filter
   offCtx.filter = "";
   offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
-  const lum = measureBrightness();
-  adaptLighting(lum);
+  const luminance = measureFrameBrightness();
+  adaptLighting(luminance);
   offCtx.filter = `brightness(${brightnessFactor}) contrast(${contrastFactor})`;
   offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
 
-  // 2) facemesh on *filtered* frame
+  // 2) facemesh
   const faces = await model.estimateFaces(offCanvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -211,131 +183,91 @@ async function render() {
     const face = faces[0];
     const k = face.scaledMesh;
 
-    // draw mesh
-    ctx.fillStyle = "rgba(0,255,0,0.6)";
+    // draw landmarks
+    ctx.fillStyle = "rgba(0,255,0,0.65)";
     for (const [x, y] of k) ctx.fillRect(x, y, 2, 2);
 
-    // ---------- EYE BLINK BASED ON MULTI POINTS ----------
-    const leftTopIdx = [159, 160, 161, 246];
-    const leftBotIdx = [145, 144, 153, 154];
-    const rightTopIdx = [386, 385, 384, 398];
-    const rightBotIdx = [374, 373, 380, 381];
+    // ----- MOUTH OPEN CLICK -----
+    const mouthGap = getMouthGap(face);
 
-    function gap(mesh, topArr, botArr) {
-      const n = Math.min(topArr.length, botArr.length);
-      let s = 0;
-      for (let i = 0; i < n; i++) {
-        s += Math.abs(mesh[topArr[i]][1] - mesh[botArr[i]][1]);
+    if (!mouthReady) {
+      mouthSamples.push(mouthGap);
+      if (mouthSamples.length > 50) {
+        mouthBaseline = mouthSamples.reduce((a, b) => a + b, 0) / mouthSamples.length;
+        mouthReady = true;
+        console.log("🟢 mouth baseline:", mouthBaseline.toFixed(2));
       }
-      return s / n;
-    }
-
-    const leftGap = gap(k, leftTopIdx, leftBotIdx);
-    const rightGap = gap(k, rightTopIdx, rightBotIdx);
-    const eyeGap = (leftGap + rightGap) / 2;
-
-    // ---------- MOUTH OPEN USING SAME IDEA ----------
-    // 13 = upper lip, 14 = lower lip works well in tfjs facemesh
-    const mouthGap = Math.abs(k[13][1] - k[14][1]);
-
-    // collect baselines for first second
-    if (!eyeBaselineReady) {
-      eyeBaselineSamples.push(eyeGap);
-      if (eyeBaselineSamples.length > 60) {
-        eyeBaseline =
-          eyeBaselineSamples.reduce((a, b) => a + b, 0) /
-          eyeBaselineSamples.length;
-        eyeBaselineReady = true;
-        console.log("👁 eye baseline:", eyeBaseline.toFixed(3));
+    } else {
+      // consider open when 1) clearly bigger than baseline AND 2) bigger than a hard floor
+      const MOUTH_EXTRA = 5.5;    // how much bigger than closed
+      const HARD_MIN = 11;        // absolute minimum to count
+      const isOpen = (mouthGap > mouthBaseline + MOUTH_EXTRA) || (mouthGap > HARD_MIN);
+      const now = Date.now();
+      if (isOpen && (now - lastClickTs > 900)) {
+        lastClickTs = now;
+        cursor.style.background = "rgba(255,0,0,0.85)";
+        playBeep();
+        setTimeout(() => cursor.style.background = "rgba(0,255,0,0.75)", 220);
+        console.log("👄 Mouth click", mouthGap.toFixed(2));
       }
-    }
-    if (!mouthBaselineReady) {
-      mouthBaselineSamples.push(mouthGap);
-      if (mouthBaselineSamples.length > 60) {
-        mouthBaseline =
-          mouthBaselineSamples.reduce((a, b) => a + b, 0) /
-          mouthBaselineSamples.length;
-        mouthBaselineReady = true;
-        console.log("👄 mouth baseline:", mouthBaseline.toFixed(3));
-      }
-    }
 
-    // draw eyelid debug lines
-    ctx.strokeStyle = "rgba(255,255,0,0.5)";
-    ctx.beginPath();
-    ctx.moveTo(k[159][0], k[159][1]);
-    ctx.lineTo(k[145][0], k[145][1]);
-    ctx.moveTo(k[386][0], k[386][1]);
-    ctx.lineTo(k[374][0], k[374][1]);
-    ctx.stroke();
-
-    // ---------- CLICK LOGIC ----------
-    const now = Date.now();
-    let fired = false;
-
-    // (A) blink click — more strict
-    if (eyeBaselineReady) {
-      const blinkThreshold = eyeBaseline * 0.55; // tighter
-      const isBlink = eyeGap < blinkThreshold;
-      if (isBlink && now - lastBlinkOrMouth > 900) {
-        fired = true;
-      }
-    }
-
-    // (B) mouth click — much bigger than baseline
-    if (!fired && mouthBaselineReady) {
-      const mouthThreshold = mouthBaseline * 1.8; // must be wide
-      const isBigMouth = mouthGap > mouthThreshold;
-      if (isBigMouth && now - lastBlinkOrMouth > 900) {
-        fired = true;
-      }
-    }
-
-    if (fired) {
-      lastBlinkOrMouth = now;
-      cursor.style.background = "rgba(255,0,0,0.85)";
-      playBeep(444, 0.2);
-      setTimeout(() => {
-        cursor.style.background = "rgba(0,255,0,0.6)";
-      }, 250);
-      console.log("✅ activation");
+      // draw mouth line for debug
+      ctx.strokeStyle = "rgba(255,255,0,0.5)";
+      ctx.beginPath();
+      const lipU = face.annotations?.lipsUpperInner?.[0] || k[13];
+      const lipL = face.annotations?.lipsLowerInner?.[0] || k[14];
+      ctx.moveTo(lipU[0], lipU[1]);
+      ctx.lineTo(lipL[0], lipL[1]);
+      ctx.stroke();
     }
   }
 
-  // 3) MOVE CURSOR FROM WEBGAZER
-  // webgazer gives window coords; we need to map → canvas space
-  const cw = canvas.width;
-  const ch = canvas.height;
-  const ww = window.innerWidth;
-  const wh = window.innerHeight;
+  // 3) CURSOR POSITION
+  // We want it to move EVEN IF webgazer isn't sure yet.
+  const nowTs = performance.now();
+  const hasFreshGaze = webgazerReady && (nowTs - lastGazeTs < 400);
 
-  // if no prediction yet, keep it centered
-  let targetCanvasX = cw / 2;
-  let targetCanvasY = ch / 2;
+  let targetX, targetY;
 
-  if (gazeWinX != null && gazeWinY != null) {
-    // clamped window coords
-    const gx = Math.min(Math.max(gazeWinX, 0), ww);
-    const gy = Math.min(Math.max(gazeWinY, 0), wh);
+  if (hasFreshGaze) {
+    // webgazer gives page coords → map to our canvas
+    const pageW = window.innerWidth;
+    const pageH = window.innerHeight;
+    const gx = Math.min(Math.max(gazeX, 0), pageW);
+    const gy = Math.min(Math.max(gazeY, 0), pageH);
 
-    // map 0..window → 0..canvas
-    targetCanvasX = (gx / ww) * cw;
-    targetCanvasY = (gy / wh) * ch;
+    // map to canvas coords
+    const sx = (gx / pageW) * canvas.width;
+    const sy = (gy / pageH) * canvas.height;
+
+    targetX = sx;
+    targetY = sy;
+  } else {
+    // fallback – center of face / nose
+    if (faces.length > 0) {
+      const face = faces[0];
+      const k = face.scaledMesh;
+      const nose = k[1];
+      targetX = canvas.width - nose[0]; // mirror
+      targetY = nose[1];
+    } else {
+      // nothing – keep last
+      targetX = smoothX || canvas.width * 0.5;
+      targetY = smoothY || canvas.height * 0.5;
+    }
   }
 
-  // smooth
-  const smoothing = 0.25;
-  smoothX += (targetCanvasX - smoothX) * smoothing;
-  smoothY += (targetCanvasY - smoothY) * smoothing;
+  // smoothing + small deadzone so it doesn't jiggle
+  const SMOOTH = 0.28;
+  const DEAD = 4;
+  if (Math.abs(targetX - smoothX) > DEAD) smoothX += (targetX - smoothX) * SMOOTH;
+  if (Math.abs(targetY - smoothY) > DEAD) smoothY += (targetY - smoothY) * SMOOTH;
 
-  // mirror horizontally to match webcam
-  const mirroredX = cw - smoothX;
-
-  cursor.style.left = `${mirroredX}px`;
+  cursor.style.left = `${smoothX}px`;
   cursor.style.top = `${smoothY}px`;
 
   requestAnimationFrame(render);
 }
 
-// kick everything off
+// kick it off
 init();
