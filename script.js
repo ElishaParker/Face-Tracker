@@ -59,7 +59,7 @@ async function render() {
     const x = dx;
     const y = dy;
     cursor.style.left = `${dx}px`;
-    cursor.style.top = `${y}px`;
+    cursor.style.top = `${dy}px`;
 
     // Blink detection — eyelid vertical distance
     const eyeTop = keypoints[159][1];
