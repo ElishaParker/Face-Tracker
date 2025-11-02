@@ -240,7 +240,7 @@ if (nose && leftIris && rightIris) {
 
   // clamp
   fbX = Math.max(0, Math.min(canvas.width,  fbX));
-  fbY = Math.max(0, Math.min(canvas.height, fbY));
+  fbY = canvas.height / 2 + (ndy - V_NEUTRAL) * canvas.height * V_GAIN;
 }
 
 
