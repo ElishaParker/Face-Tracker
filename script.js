@@ -1,6 +1,6 @@
 // ===============================
-// Face Tracker v1.3α
-// Adaptive Blink Calibration + 444 Hz Tone
+// Face Tracker v1.3b
+// Adaptive Multi-Landmark Blink + 444 Hz Tone
 // ===============================
 
 let model, video, canvas, ctx;
@@ -10,19 +10,19 @@ let blinkBaseline = null;
 let baselineSamples = [];
 let baselineReady = false;
 
-// === Internal synth (444 Hz) ===
-function playBeep(frequency = 444, duration = 0.15) {
+// === 444 Hz internal beep ===
+function playBeep(f = 444, dur = 0.15) {
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = "sine";
-  osc.frequency.value = frequency;
+  osc.frequency.value = f;
   gain.gain.setValueAtTime(0.2, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
   osc.connect(gain);
   gain.connect(ctx.destination);
   osc.start();
-  osc.stop(ctx.currentTime + duration);
+  osc.stop(ctx.currentTime + dur);
 }
 
 async function setupCamera() {
@@ -42,7 +42,7 @@ async function init() {
   window.addEventListener("resize", resize);
 
   model = await facemesh.load();
-  console.log("Model loaded ✅");
+  console.log("✅ Facemesh loaded");
   render();
 }
 
@@ -51,9 +51,17 @@ function resize() {
   canvas.height = video.videoHeight;
 }
 
-function avg(points) {
-  const s = points.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]);
-  return [s[0] / points.length, s[1] / points.length];
+function avg(pts) {
+  const s = pts.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]);
+  return [s[0] / pts.length, s[1] / pts.length];
+}
+
+function avgEyeDistance(keypoints, topIdx, bottomIdx) {
+  const tops = topIdx.map(i => keypoints[i][1]);
+  const bots = bottomIdx.map(i => keypoints[i][1]);
+  const topAvg = tops.reduce((a, b) => a + b, 0) / tops.length;
+  const botAvg = bots.reduce((a, b) => a + b, 0) / bots.length;
+  return Math.abs(topAvg - botAvg);
 }
 
 async function render() {
@@ -64,11 +72,11 @@ async function render() {
     const f = faces[0];
     const k = f.scaledMesh;
 
-    // === Draw mesh ===
+    // === Mesh ===
     ctx.fillStyle = "rgba(0,255,0,0.6)";
     for (const [x, y] of k) ctx.fillRect(x, y, 2, 2);
 
-    // === Iris tracking ===
+    // === Eyes ===
     const lIris = k.slice(468, 472);
     const rIris = k.slice(473, 477);
     const lC = avg(lIris);
@@ -86,30 +94,35 @@ async function render() {
     const dy = ((lC[1] + rC[1]) / 2 - nose[1]) * 7;
     const targetX = canvas.width / 2 - dx;
     const targetY = canvas.height / 2 + dy;
-    const s = 0.15;
-    smoothX += (targetX - smoothX) * s;
-    smoothY += (targetY - smoothY) * s;
+    smoothX += (targetX - smoothX) * 0.15;
+    smoothY += (targetY - smoothY) * 0.15;
     cursor.style.left = `${canvas.width - smoothX}px`;
     cursor.style.top = `${smoothY}px`;
 
-    // === Eye distances ===
-    const L = Math.abs(k[159][1] - k[145][1]);
-    const R = Math.abs(k[386][1] - k[374][1]);
-    const eyeAvg = (L + R) / 2;
+    // === Multi-landmark eye closure tracking ===
+    const leftTop = [159, 160, 161, 246];
+    const leftBot = [145, 144, 153, 154];
+    const rightTop = [386, 385, 384, 398];
+    const rightBot = [374, 373, 380, 381];
 
-    // === Calibrate baseline (first 2 s) ===
+    const leftDist = avgEyeDistance(k, leftTop, leftBot);
+    const rightDist = avgEyeDistance(k, rightTop, rightBot);
+    const eyeAvg = (leftDist + rightDist) / 2;
+
+    // === Adaptive calibration ===
     if (!baselineReady) {
       baselineSamples.push(eyeAvg);
       if (baselineSamples.length > 60) {
-        blinkBaseline = baselineSamples.reduce((a, b) => a + b, 0) / baselineSamples.length;
+        blinkBaseline =
+          baselineSamples.reduce((a, b) => a + b, 0) / baselineSamples.length;
         baselineReady = true;
-        console.log(`Blink baseline set: ${blinkBaseline.toFixed(2)}`);
+        console.log("Blink baseline set:", blinkBaseline.toFixed(2));
       }
     } else {
-      const blinkThreshold = blinkBaseline * 0.55; // ~45% closure
+      const blinkThreshold = blinkBaseline * 0.65; // More sensitive than before
       const blink = eyeAvg < blinkThreshold;
 
-      // Visual eyelid line
+      // Visual eyelid bars
       ctx.strokeStyle = "rgba(255,255,0,0.5)";
       ctx.beginPath();
       ctx.moveTo(k[159][0], k[159][1]);
@@ -118,12 +131,13 @@ async function render() {
       ctx.lineTo(k[374][0], k[374][1]);
       ctx.stroke();
 
-      // === Trigger blink click ===
-      if (blink && Date.now() - lastBlink > 600) {
+      // === Blink event ===
+      if (blink && Date.now() - lastBlink > 700) {
         lastBlink = Date.now();
         cursor.style.background = "rgba(255,0,0,0.8)";
         playBeep(444, 0.2);
         setTimeout(() => (cursor.style.background = "rgba(0,255,0,0.6)"), 250);
+        console.log("👁 Blink detected");
       }
     }
   }
