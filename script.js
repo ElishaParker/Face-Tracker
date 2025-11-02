@@ -18,7 +18,7 @@ async function init() {
   resize();
   window.addEventListener('resize', resize);
 
-  // ✅ Load facemesh instead of face-landmarks-detection
+  // ✅ Load facemesh model
   model = await facemesh.load();
 
   render();
@@ -35,26 +35,47 @@ async function render() {
 
   if (predictions.length > 0 && predictions[0].scaledMesh) {
     const keypoints = predictions[0].scaledMesh;
+    const face = predictions[0];
 
+    // Draw all landmarks
     ctx.fillStyle = 'rgba(0,255,0,0.5)';
     for (const [x, y] of keypoints) {
       ctx.fillRect(x, y, 2, 2);
     }
 
-    // Eye center between 159 and 386
-    const leftEye = keypoints[159];
-    const rightEye = keypoints[386];
-    const dx = (leftEye[0] + rightEye[0]) / 2;
-    const dy = (leftEye[1] + rightEye[1]) / 2;
+    // ✅ Eye tracking
+    let leftEye, rightEye;
+    if (face.annotations && face.annotations.leftEyeUpper0 && face.annotations.rightEyeUpper0) {
+      const leftPts = face.annotations.leftEyeUpper0;
+      const rightPts = face.annotations.rightEyeUpper0;
+      leftEye = leftPts[Math.floor(leftPts.length / 2)];
+      rightEye = rightPts[Math.floor(rightPts.length / 2)];
+    } else {
+      leftEye = keypoints[159];
+      rightEye = keypoints[386];
+    }
 
-    cursor.style.left = `${dx}px`;
-    cursor.style.top = `${dy}px`;
+    if (leftEye && rightEye) {
+      const dx = (leftEye[0] + rightEye[0]) / 2;
+      const dy = (leftEye[1] + rightEye[1]) / 2;
 
-    // Blink detection
-    const eyeTop = keypoints[159][1];
-    const eyeBottom = keypoints[145][1];
-    const eyeDist = Math.abs(eyeTop - eyeBottom);
+      cursor.style.left = `${dx}px`;
+      cursor.style.top = `${dy}px`;
+    }
 
+    // ✅ Blink detection
+    let eyeTopY, eyeBottomY;
+    if (face.annotations && face.annotations.leftEyeUpper0 && face.annotations.leftEyeLower0) {
+      const upper = face.annotations.leftEyeUpper0;
+      const lower = face.annotations.leftEyeLower0;
+      eyeTopY = upper.reduce((a, p) => a + p[1], 0) / upper.length;
+      eyeBottomY = lower.reduce((a, p) => a + p[1], 0) / lower.length;
+    } else {
+      eyeTopY = keypoints[159][1];
+      eyeBottomY = keypoints[145][1];
+    }
+
+    const eyeDist = Math.abs(eyeTopY - eyeBottomY);
     if (eyeDist < 2 && Date.now() - lastBlink > 500) {
       lastBlink = Date.now();
       cursor.style.background = 'rgba(255,0,0,0.8)';
@@ -64,6 +85,7 @@ async function render() {
     }
   }
 
+  // ✅ Continue the render loop
   requestAnimationFrame(render);
 }
 
