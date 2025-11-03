@@ -151,7 +151,7 @@ async function render() {
 
       // ==== YOUR TWEAKS HERE ====
       const H_GAIN    = 5.5;   // ⬅️ stronger left/right
-      const V_GAIN    = -10;    // ⬅️ stronger up/down
+      const V_GAIN    = 6;    // ⬅️ stronger up/down
       const V_NEUTRAL = 0.0;   // we’re using Y_OFFSET instead
       const X_OFFSET  = 0;     // if dot is a bit left/right
       const Y_OFFSET  = 170;   // ⬅️ bump neutral UP more
