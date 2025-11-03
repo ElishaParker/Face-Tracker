@@ -1,5 +1,5 @@
 // ===============================================
-// ASSISTIVE FACE TRACKER – STABLE BASE (VERTICAL FIXED)
+// ASSISTIVE FACE TRACKER – H FIX + NEUTRAL Y
 // ===============================================
 
 let model, video, canvas, ctx;
@@ -145,19 +145,22 @@ async function render() {
       const faceW = Math.max(40, rightFace[0] - leftFace[0]);
       const faceH = Math.max(50, botFace[1]   - topFace[1]);
 
-      let ndx = (irisX - nose[0]) / faceW;
-      let ndy = (irisY - nose[1]) / faceH;
+      let ndx = (irisX - nose[0]) / faceW;  // -0.5..0.5
+      let ndy = (irisY - nose[1]) / faceH;  // -0.5..0.5
 
       // ======= CALIBRATION =======
-      const H_GAIN    = 2.0;   // left/right strength
-      const V_GAIN    = 2.0;   // up/down strength
-      const V_NEUTRAL = 0.05;  // raise / lower dot when looking straight
-      const X_OFFSET  = 0;     // nudge right/left
+      const H_GAIN    = 2.0;    // left/right strength
+      const V_GAIN    = 2.0;    // up/down strength
+      const V_NEUTRAL = 0.00;   // we’ll move with Y_OFFSET instead
+      const X_OFFSET  = 0;      // px → nudge horizontally
+      const Y_OFFSET  = 120;    // px → move dot UP on screen (because y+ is down)
 
-      // mirror X
-      const rawX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN + X_OFFSET;
-      // ✅ FIXED: invert vertical
-      const rawY = canvas.height / 2 - (ndy - V_NEUTRAL) * canvas.height * V_GAIN;
+      // ✅ FIX 1: horizontal not inverted anymore
+      const rawX = canvas.width  / 2 + ndx * canvas.width * H_GAIN + X_OFFSET;
+
+      // ✅ FIX 2: vertical correct + lifted
+      // look up (ndy smaller) → dot up
+      const rawY = canvas.height / 2 - (ndy - V_NEUTRAL) * canvas.height * V_GAIN - Y_OFFSET;
 
       targetX = Math.max(0, Math.min(canvas.width,  rawX));
       targetY = Math.max(0, Math.min(canvas.height, rawY));
