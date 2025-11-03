@@ -150,8 +150,8 @@ async function render() {
       let ndy = (irisY - nose[1]) / faceH;
 
       // ==== YOUR TWEAKS HERE ====
-      const H_GAIN    = 5.5;   // ⬅️ stronger left/right
-      const V_GAIN    = 8.5;    // ⬅️ stronger up/down
+      const H_GAIN    = 4.5;   // ⬅️ stronger left/right
+      const V_GAIN    = 10;    // ⬅️ stronger up/down
       const V_NEUTRAL = -0.2;   // we’re using Y_OFFSET instead
       const X_OFFSET  = 0;     // if dot is a bit left/right
       const Y_OFFSET  = 0;   // ⬅️ bump neutral UP more
