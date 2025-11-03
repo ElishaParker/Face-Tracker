@@ -1,33 +1,56 @@
+/* ====== Global ====== */
 html, body {
   margin: 0;
+  padding: 0;
   overflow: hidden;
-  height: 100%;
-  background: black;
+  background: #000;
+  width: 100vw;
+  height: 100vh;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-video, canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+/* ====== Webcam video (mirrored) ====== */
+#video {
+  position: fixed;
+  inset: 0;               /* top:0; right:0; bottom:0; left:0 */
+  width: 100vw;
+  height: 100vh;
   object-fit: cover;
-  transform: scaleX(-1);  /* mirror */
+  transform: scaleX(-1);  /* mirror so your left = screen left */
   z-index: 0;
 }
 
-canvas {
-  z-index: 1;
+/* ====== Facemesh overlay (also mirrored to match video) ====== */
+#overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
   pointer-events: none;
+  transform: scaleX(-1);
+  z-index: 1;
 }
 
+/* ====== Gaze cursor (NOT mirrored) ====== */
 #cursor {
-  position: absolute;
+  position: fixed;
   width: 20px;
   height: 20px;
   border-radius: 50%;
   background: rgba(0, 255, 0, 0.6);
-  transform: translate(-50%, -50%);
-  z-index: 2;
   pointer-events: none;
+  transform: translate(-50%, -50%); /* center on x,y */
+  z-index: 2;
+  transition: background 0.15s ease;
+}
+
+/* ====== Kill WebGazer's default UI if it sneaks in ====== */
+#webgazerVideoContainer,
+#webgazerVideoFeed,
+#webgazerFaceOverlay,
+#webgazerFaceFeedbackBox,
+#webgazerGazeDot {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
