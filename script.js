@@ -33,6 +33,9 @@ function playBeep(freq = 444, dur = 0.15) {
 // -----------------------------------------------------
 // camera
 // camera
+// -----------------------------------------------------
+// camera + resize (browser-fit)
+// -----------------------------------------------------
 async function setupCamera() {
   video = document.getElementById("video");
 
@@ -50,44 +53,37 @@ async function setupCamera() {
   video.srcObject = stream;
   await new Promise(r => (video.onloadedmetadata = r));
 
-  // once we know the real video size, match canvases
+  // match canvases once we know real video size
   resize();
 }
 
 // keep video/canvas pinned to browser size
 function resize() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  if (!canvas || !offCanvas) return;
 
-  // video is already 100% via CSS, but set canvas explicitly
+  // prefer actual video size, fall back to window
+  const w =
+    (video && (video.videoWidth || video.clientWidth)) ||
+    window.innerWidth;
+  const h =
+    (video && (video.videoHeight || video.clientHeight)) ||
+    window.innerHeight;
+
+  // canvas layers
   canvas.width = w;
   canvas.height = h;
 
   offCanvas.width = w;
   offCanvas.height = h;
-}
-window.addEventListener("resize", resize);
 
-
-// -----------------------------------------------------
-// resize canvases to video
-function resize() {
-  if (!video) return;
-  const w = video.videoWidth  || video.clientWidth  || window.innerWidth;
-  const h = video.videoHeight || video.clientHeight || window.innerHeight;
-
-  canvas.width  = w;
-  canvas.height = h;
-
-  offCanvas.width  = w;
-  offCanvas.height = h;
-
-  // when we FIRST know the real size, drop the cursor in the middle
+  // first-time center for the cursor
   if (smoothX === 120 && smoothY === 120) {
     smoothX = w / 2;
     smoothY = h / 2;
   }
 }
+
+window.addEventListener("resize", resize);
 
 // -----------------------------------------------------
 // HARD HIDE webgazer’s own DOM stuff
