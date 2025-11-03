@@ -1,5 +1,5 @@
 // ===============================================
-// ASSISTIVE FACE TRACKER – H FIX + NEUTRAL Y
+// ASSISTIVE FACE TRACKER – tuned
 // ===============================================
 
 let model, video, canvas, ctx;
@@ -25,7 +25,7 @@ function playBeep(freq = 444, dur = 0.15) {
   osc.start(); osc.stop(ac.currentTime + dur);
 }
 
-// ---------- CAMERA (fit to browser) ----------
+// ---------- CAMERA ----------
 async function setupCamera() {
   video = document.getElementById("video");
 
@@ -105,6 +105,7 @@ async function render() {
       if (mouthSamples.length > 40) {
         mouthBaseline = mouthSamples.reduce((a, b) => a + b, 0) / mouthSamples.length;
         mouthReady = true;
+        console.log("👄 mouth baseline:", mouthBaseline.toFixed(3));
       }
     } else {
       const mouthThreshold = mouthBaseline * 1.7;
@@ -145,21 +146,20 @@ async function render() {
       const faceW = Math.max(40, rightFace[0] - leftFace[0]);
       const faceH = Math.max(50, botFace[1]   - topFace[1]);
 
-      let ndx = (irisX - nose[0]) / faceW;  // -0.5..0.5
-      let ndy = (irisY - nose[1]) / faceH;  // -0.5..0.5
+      let ndx = (irisX - nose[0]) / faceW;
+      let ndy = (irisY - nose[1]) / faceH;
 
-      // ======= CALIBRATION =======
-      const H_GAIN    = 2.0;    // left/right strength
-      const V_GAIN    = 2.0;    // up/down strength
-      const V_NEUTRAL = 0.00;   // we’ll move with Y_OFFSET instead
-      const X_OFFSET  = 0;      // px → nudge horizontally
-      const Y_OFFSET  = 120;    // px → move dot UP on screen (because y+ is down)
+      // ==== YOUR TWEAKS HERE ====
+      const H_GAIN    = 5.5;   // ⬅️ stronger left/right
+      const V_GAIN    = 10;    // ⬅️ stronger up/down
+      const V_NEUTRAL = 0.0;   // we’re using Y_OFFSET instead
+      const X_OFFSET  = 0;     // if dot is a bit left/right
+      const Y_OFFSET  = 170;   // ⬅️ bump neutral UP more
 
-      // ✅ FIX 1: horizontal not inverted anymore
-      const rawX = canvas.width  / 2 + ndx * canvas.width * H_GAIN + X_OFFSET;
+      // left/right – NOT mirrored here
+      const rawX = canvas.width / 2 + ndx * canvas.width * H_GAIN + X_OFFSET;
 
-      // ✅ FIX 2: vertical correct + lifted
-      // look up (ndy smaller) → dot up
+      // look up → dot up
       const rawY = canvas.height / 2 - (ndy - V_NEUTRAL) * canvas.height * V_GAIN - Y_OFFSET;
 
       targetX = Math.max(0, Math.min(canvas.width,  rawX));
@@ -170,6 +170,7 @@ async function render() {
     targetY = canvas.height / 2;
   }
 
+  // smooth
   const SMOOTH = 0.25;
   smoothX += (targetX - smoothX) * SMOOTH;
   smoothY += (targetY - smoothY) * SMOOTH;
