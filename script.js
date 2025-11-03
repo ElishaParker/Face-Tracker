@@ -228,7 +228,7 @@ if (nose && leftIris && rightIris) {
 
   // --- tuning knobs ---
   const H_GAIN = 4.5;
-  const V_GAIN = 3.5;
+  const V_GAIN = 5.5;
 
   // raise / lower neutral vertical
   const V_NEUTRAL = -0.25;   // you can keep tweaking this
