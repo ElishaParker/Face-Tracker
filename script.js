@@ -7,8 +7,8 @@ let cursor;
 let offCanvas, offCtx;
 
 let gazeX = 0, gazeY = 0;
-let lastGazeTime = 0;          // ms
-let smoothX = 120, smoothY = 120;
+let lastGazeTime = 0;               // ms
+let smoothX = 120, smoothY = 120;   // will get centered on first resize
 
 // mouth / click
 let lastClick = 0;
@@ -30,9 +30,6 @@ function playBeep(freq = 444, dur = 0.15) {
   osc.start(); osc.stop(ac.currentTime + dur);
 }
 
-// -----------------------------------------------------
-// camera
-// camera
 // -----------------------------------------------------
 // camera + resize (browser-fit)
 // -----------------------------------------------------
@@ -57,11 +54,9 @@ async function setupCamera() {
   resize();
 }
 
-// keep video/canvas pinned to browser size
 function resize() {
   if (!canvas || !offCanvas) return;
 
-  // prefer actual video size, fall back to window
   const w =
     (video && (video.videoWidth || video.clientWidth)) ||
     window.innerWidth;
@@ -69,20 +64,18 @@ function resize() {
     (video && (video.videoHeight || video.clientHeight)) ||
     window.innerHeight;
 
-  // canvas layers
   canvas.width = w;
   canvas.height = h;
 
   offCanvas.width = w;
   offCanvas.height = h;
 
-  // first-time center for the cursor
+  // first run → center cursor
   if (smoothX === 120 && smoothY === 120) {
     smoothX = w / 2;
     smoothY = h / 2;
   }
 }
-
 window.addEventListener("resize", resize);
 
 // -----------------------------------------------------
@@ -99,7 +92,7 @@ function killWebgazerUI() {
     const el = document.getElementById(id);
     if (el) {
       el.style.display = "none";
-      el.remove(); // just nuke it
+      el.remove();
     }
   });
 }
@@ -119,26 +112,24 @@ function loadWebGazer() {
 
 function startWebGazer() {
   console.log("🎯 WebGazer starting…");
-  // NOTE: don't call .setTracker("clmtrackr") – your build only has TFFacemesh
   webgazer
-    // .setTracker("TFFacemesh") // optional – we can also let it pick
     .setRegression("ridge")
     .begin()
     .then(() => {
       webgazer
-        .showVideoPreview(false)     // try not to show
-        .showPredictionPoints(false) // try not to show
+        .showVideoPreview(false)
+        .showPredictionPoints(false)
         .applyKalmanFilter(true);
 
-      // in case WG re-creates the elements later:
       setTimeout(killWebgazerUI, 500);
       setTimeout(killWebgazerUI, 2000);
 
       webgazer.setGazeListener((data) => {
         if (!data) return;
-        // basic sanity check: viewport
-        if (data.x >= 0 && data.x <= window.innerWidth &&
-            data.y >= 0 && data.y <= window.innerHeight) {
+        if (
+          data.x >= 0 && data.x <= window.innerWidth &&
+          data.y >= 0 && data.y <= window.innerHeight
+        ) {
           gazeX = data.x;
           gazeY = data.y;
           lastGazeTime = performance.now();
@@ -211,62 +202,51 @@ async function render() {
     }
 
     // ========== FACEMESH FALLBACK GAZE ==========
-    // ========== FACEMESH FALLBACK GAZE ==========
-// ---------- FACEMESH FALLBACK GAZE ----------
-const nose = k[1];
-const leftIris = (k[468] && k[469] && k[470] && k[471])
-  ? [
-      (k[468][0] + k[469][0] + k[470][0] + k[471][0]) / 4,
-      (k[468][1] + k[469][1] + k[470][1] + k[471][1]) / 4
-    ]
-  : (k[159] ? [k[159][0], k[159][1]] : null);
-const rightIris = (k[473] && k[474] && k[475] && k[476])
-  ? [
-      (k[473][0] + k[474][0] + k[475][0] + k[476][0]) / 4,
-      (k[473][1] + k[474][1] + k[475][1] + k[476][1]) / 4
-    ]
-  : (k[386] ? [k[386][0], k[386][1]] : null);
+    const nose = k[1];
+    const leftIris = (k[468] && k[469] && k[470] && k[471])
+      ? [
+          (k[468][0] + k[469][0] + k[470][0] + k[471][0]) / 4,
+          (k[468][1] + k[469][1] + k[470][1] + k[471][1]) / 4
+        ]
+      : (k[159] ? [k[159][0], k[159][1]] : null);
+    const rightIris = (k[473] && k[474] && k[475] && k[476])
+      ? [
+          (k[473][0] + k[474][0] + k[475][0] + k[476][0]) / 4,
+          (k[473][1] + k[474][1] + k[475][1] + k[476][1]) / 4
+        ]
+      : (k[386] ? [k[386][0], k[386][1]] : null);
 
-let fbX = canvas.width / 2;
-let fbY = canvas.height / 2;
+    let fbX = canvas.width / 2;
+    let fbY = canvas.height / 2;
 
-if (nose && leftIris && rightIris) {
-  const irisX = (leftIris[0] + rightIris[0]) / 2;
-  const irisY = (leftIris[1] + rightIris[1]) / 2;
+    if (nose && leftIris && rightIris) {
+      const irisX = (leftIris[0] + rightIris[0]) / 2;
+      const irisY = (leftIris[1] + rightIris[1]) / 2;
 
-  const leftFace  = k[234] || nose;
-  const rightFace = k[454] || nose;
-  const topFace   = k[10]  || nose;
-  const botFace   = k[152] || nose;
+      const leftFace  = k[234] || nose;
+      const rightFace = k[454] || nose;
+      const topFace   = k[10]  || nose;
+      const botFace   = k[152] || nose;
 
-  const faceW = Math.max(40, rightFace[0] - leftFace[0]);
-  const faceH = Math.max(50, botFace[1]   - topFace[1]);
+      const faceW = Math.max(40, rightFace[0] - leftFace[0]);
+      const faceH = Math.max(50, botFace[1]   - topFace[1]);
 
-  // normalized eye offsets
-  let ndx = (irisX - nose[0]) / faceW;
-  let ndy = (irisY - nose[1]) / faceH;
+      let ndx = (irisX - nose[0]) / faceW;
+      let ndy = (irisY - nose[1]) / faceH;
 
-  // --- tuning knobs ---
-  const H_GAIN = 5.5;
-  const V_GAIN = 10;
+      // --- tuning knobs ---
+      const H_GAIN = 2.2;     // left/right sensitivity
+      const V_GAIN = 2.0;     // up/down sensitivity
+      const V_NEUTRAL = 0.05; // raise/lower resting height
+      const X_OFFSET = 0;     // shift dot right/left in px
 
-  // raise / lower neutral vertical
-  const V_NEUTRAL = -0.25;   // you can keep tweaking this
+      fbX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN + X_OFFSET;
+      fbY = canvas.height / 2 + (ndy - V_NEUTRAL) * canvas.height * V_GAIN;
 
-  // shift dot a bit to the RIGHT (it was slightly left)
-  const X_OFFSET = -15;      // px → make 15–35 to taste
-
-  // IMPORTANT: for your setup looking UP should move dot UP
-  // so we use "+" here, not "-"
-  fbX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN + X_OFFSET;
-  fbY = canvas.height / 2 + (ndy - V_NEUTRAL) * canvas.height * V_GAIN;
-
-  // clamp
-  fbX = Math.max(0, Math.min(canvas.width,  fbX));
-  fbY = Math.max(0, Math.min(canvas.height, fbY));
-}
-
-
+      // clamp
+      fbX = Math.max(0, Math.min(canvas.width,  fbX));
+      fbY = Math.max(0, Math.min(canvas.height, fbY));
+    }
 
     // ========== PICK SOURCE ==========
     const now = performance.now();
@@ -275,12 +255,12 @@ if (nose && leftIris && rightIris) {
     if (webgazerFresh) {
       const normX = gazeX / window.innerWidth;
       const normY = gazeY / window.innerHeight;
-      targetX = canvas.width  - normX * canvas.width;  // mirror
-      targetY =               normY * canvas.height;
+      targetX = canvas.width  - normX * canvas.width;  // mirror X
+      targetY =               normY * canvas.height;   // normal Y
     } else {
-      // our own facemesh gaze, also mirrored
-      targetX = canvas.width - fbX;
-      targetY = canvas.height - fbY;  
+      // ✅ facemesh is already in screen coords, don't flip Y again
+      targetX = canvas.width - fbX; // mirror X
+      targetY = fbY;                // keep Y
     }
   } else {
     // no face → center
@@ -312,7 +292,6 @@ async function init() {
   offCtx = offCanvas.getContext("2d");
 
   resize();
-  window.addEventListener("resize", resize);
 
   model = await facemesh.load();
   console.log("✅ FaceMesh loaded");
