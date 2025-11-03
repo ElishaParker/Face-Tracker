@@ -1,1 +1,59 @@
+Face Tracker Non-Commercial License 1.0
+Copyright (c) 2025 Elisha B Parker
+All rights reserved.
+
+Summary (non-binding):
+You may use, copy, modify, and share this code for personal, research, or educational purposes,
+but you may not use it, or any derivative, for commercial purposes without written permission
+from the Licensor. For commercial licensing, see LICENSE-COMMERCIAL.md.
+
+1. Definitions
+   “Software” means the source code and other material in this repository authored by the Licensor,
+   excluding Third-Party Components listed in NOTICE.
+   “Non-Commercial” means use that is not intended for or directed toward commercial advantage
+   or monetary compensation, including internal business use by any for-profit entity.
+
+2. Grant
+   Subject to this License, Licensor grants you a worldwide, royalty-free, non-exclusive,
+   non-transferable license to:
+   (a) use and run the Software for Non-Commercial purposes;
+   (b) copy and modify the Software for Non-Commercial purposes; and
+   (c) distribute the Software and your modifications for Non-Commercial purposes,
+       provided you include (i) this License, (ii) the copyright notice above,
+       and (iii) the NOTICE file; and you clearly mark your changes.
+
+3. Prohibited Uses
+   You must NOT, without prior written permission from the Licensor:
+   (a) use, offer, sell, host, sublicense, or distribute the Software or derivatives for
+       any Commercial purpose (including paid services, SaaS, ads-supported, or embedded in
+       commercial products);
+   (b) use the Software to develop or offer a competing SDK/library marketed as eye-tracking
+       or cursor-control tooling;
+   (c) remove or alter copyright, license, or attribution notices in the Software.
+
+4. Third-Party Components
+   The Software interoperates with or includes Third-Party Components under their own licenses,
+   as listed in NOTICE. Those licenses govern those components. Nothing here overrides them.
+
+5. No Warranty
+   THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+   INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+   PURPOSE AND NON-INFRINGEMENT.
+
+6. Limitation of Liability
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY CLAIM,
+   DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+7. Termination
+   This License terminates automatically if you breach it. Upon termination, you must cease use
+   and distribution of the Software, except that past recipients of your Non-Commercial
+   distributions may continue under these same terms.
+
+8. Commercial Licensing
+   For commercial use (including monetization, ads, SaaS, enterprise, OEM/embedded),
+   contact the Licensor to obtain a commercial license as described in LICENSE-COMMERCIAL.md.
+
+Contact: elisha.b.parker. (preferred contact email/elishaparker@hotmail.com)
+SPDX-License-Identifier: LicenseRef-FaceTracker-NC-1.0
 
