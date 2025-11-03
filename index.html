@@ -3,19 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Assistive Eye‑Gaze Tracker</title>
-  <!--
-    This page implements a fully self‑contained eye‑tracking prototype.
-    It loads TensorFlow.js and the lightweight FaceMesh model to detect
-    facial landmarks for blinking and validation, while WebGazer.js is
-    loaded asynchronously by the accompanying script for gaze‑based cursor
-    control.  The video feed is mirrored for a natural, “mirror mode”
-    experience.  A floating cursor indicator is positioned based on
-    gaze and flashes red on blink to signal a click event.  Brightness
-    and contrast are adjusted on the fly to maintain reliable detection
-    in varying lighting conditions.
-  -->
-  <!-- TensorFlow core and FaceMesh model -->
+  <title>Assistive Eye-Gaze Tracker</title>
+
+  <!-- TF + FaceMesh -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh@0.0.4/dist/facemesh.min.js"></script>
 
@@ -25,18 +15,33 @@
       padding: 0;
       overflow: hidden;
       background: #000;
+      width: 100vw;
+      height: 100vh;
     }
-    /* Mirror the feed so the user’s left corresponds to screen left */
-    #video, #overlay {
+
+    /* webcam */
+    #video {
       position: fixed;
-      top: 0;
-      left: 0;
+      inset: 0;
       width: 100vw;
       height: 100vh;
       object-fit: cover;
-      transform: scaleX(-1);
+      transform: scaleX(-1);      /* mirror for user */
+      z-index: 0;
     }
-    /* Floating cursor that tracks gaze and blinks red on click */
+
+    /* facemesh overlay — also mirrored so debug dots line up */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      transform: scaleX(-1);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* our gaze cursor — NOT mirrored */
     #cursor {
       position: fixed;
       width: 20px;
@@ -45,19 +50,17 @@
       background: rgba(0, 255, 0, 0.6);
       pointer-events: none;
       transform: translate(-50%, -50%);
-      z-index: 100;
+      z-index: 2;
       transition: background 0.15s ease;
     }
   </style>
 </head>
 <body>
-  <!-- The mirrored video feed from the user’s webcam -->
   <video id="video" autoplay muted playsinline></video>
-  <!-- Canvas used to render facial landmarks and debug information -->
   <canvas id="overlay"></canvas>
-  <!-- Cursor indicator driven by gaze / blink events -->
   <div id="cursor"></div>
-  <!-- Main application logic -->
+
+  <!-- your tuned main JS -->
   <script src="script.js"></script>
 </body>
 </html>
