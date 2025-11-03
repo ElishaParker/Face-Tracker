@@ -1,6 +1,5 @@
 // ===============================================
-// ASSISTIVE FACE TRACKER – STABLE BASE
-// (no webgazer, browser-fitted, mirrored)
+// ASSISTIVE FACE TRACKER – STABLE BASE (VERTICAL FIXED)
 // ===============================================
 
 let model, video, canvas, ctx;
@@ -81,23 +80,18 @@ function avgGap(mesh, topIdx, botIdx) {
 
 // ---------- MAIN LOOP ----------
 async function render() {
-  // draw video → offscreen
   offCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
 
-  // run facemesh
   const faces = await model.estimateFaces(offCanvas);
-
-  // clear overlay
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // default target = stay where you are
   let targetX = smoothX;
   let targetY = smoothY;
 
   if (faces.length > 0) {
     const k = faces[0].scaledMesh;
 
-    // draw debug mesh
+    // debug mesh
     ctx.fillStyle = "rgba(0,255,0,0.6)";
     for (const [x, y] of k) ctx.fillRect(x, y, 2, 2);
 
@@ -151,30 +145,28 @@ async function render() {
       const faceW = Math.max(40, rightFace[0] - leftFace[0]);
       const faceH = Math.max(50, botFace[1]   - topFace[1]);
 
-      let ndx = (irisX - nose[0]) / faceW;  // -0.5..0.5
-      let ndy = (irisY - nose[1]) / faceH;  // -0.5..0.5
+      let ndx = (irisX - nose[0]) / faceW;
+      let ndy = (irisY - nose[1]) / faceH;
 
       // ======= CALIBRATION =======
-      const H_GAIN    = 2.0;   // left/right sensitivity
-      const V_GAIN    = 2.0;   // up/down sensitivity
-      const V_NEUTRAL = 0.05;  // raise/lower resting height
-      const X_OFFSET  = 0;     // nudge right/left (px)
+      const H_GAIN    = 2.0;   // left/right strength
+      const V_GAIN    = 2.0;   // up/down strength
+      const V_NEUTRAL = 0.05;  // raise / lower dot when looking straight
+      const X_OFFSET  = 0;     // nudge right/left
 
-      // mirror X to match mirrored video
+      // mirror X
       const rawX = canvas.width  / 2 - ndx * canvas.width  * H_GAIN + X_OFFSET;
-      // correct Y (look up → dot up)
-      const rawY = canvas.height / 2 + (ndy - V_NEUTRAL) * canvas.height * V_GAIN;
+      // ✅ FIXED: invert vertical
+      const rawY = canvas.height / 2 - (ndy - V_NEUTRAL) * canvas.height * V_GAIN;
 
       targetX = Math.max(0, Math.min(canvas.width,  rawX));
       targetY = Math.max(0, Math.min(canvas.height, rawY));
     }
   } else {
-    // no face → center
     targetX = canvas.width / 2;
     targetY = canvas.height / 2;
   }
 
-  // smooth
   const SMOOTH = 0.25;
   smoothX += (targetX - smoothX) * SMOOTH;
   smoothY += (targetY - smoothY) * SMOOTH;
@@ -185,7 +177,7 @@ async function render() {
   requestAnimationFrame(render);
 }
 
-// ====== init ======
+// ---------- init ----------
 async function init() {
   cursor = document.getElementById("cursor");
   await setupCamera();
