@@ -1,5 +1,5 @@
 // ===============================================
-// ASSISTIVE FACE TRACKER – tuned
+// ASSISTIVE FACE TRACKER – tuned + de-jittered
 // ===============================================
 
 let model, video, canvas, ctx;
@@ -11,6 +11,10 @@ let lastClick = 0;
 let mouthBaseline = null;
 let mouthSamples = [];
 let mouthReady = false;
+
+// 🟢 we also smooth the FACE signal itself
+let smoothNdX = 0;
+let smoothNdY = 0;
 
 // ---------- BEEP ----------
 function playBeep(freq = 444, dur = 0.15) {
@@ -146,20 +150,30 @@ async function render() {
       const faceW = Math.max(40, rightFace[0] - leftFace[0]);
       const faceH = Math.max(50, botFace[1]   - topFace[1]);
 
+      // raw normalized deltas
       let ndx = (irisX - nose[0]) / faceW;
       let ndy = (irisY - nose[1]) / faceH;
 
+      // 🟢 1) smooth the deltas themselves
+      const FACE_SMOOTH = 0.25;          // lower = smoother
+      smoothNdX += (ndx - smoothNdX) * FACE_SMOOTH;
+      smoothNdY += (ndy - smoothNdY) * FACE_SMOOTH;
+      ndx = smoothNdX;
+      ndy = smoothNdY;
+
+      // 🟢 2) dead zone for tiny movements
+      const DEAD = 0.004;                // tweak 0.003–0.01
+      if (Math.abs(ndx) < DEAD) ndx = 0;
+      if (Math.abs(ndy) < DEAD) ndy = 0;
+
       // ==== YOUR TWEAKS HERE ====
-      const H_GAIN    = 10;   // ⬅️ stronger left/right
-      const V_GAIN    = 15;    // ⬅️ stronger up/down
-      const V_NEUTRAL = -0.2;   // we’re using Y_OFFSET instead
-      const X_OFFSET  = 0;     // if dot is a bit left/right
-      const Y_OFFSET  = 0;   // ⬅️ bump neutral UP more
+      const H_GAIN    = 10;
+      const V_GAIN    = 15;
+      const V_NEUTRAL = -0.2;
+      const X_OFFSET  = 0;
+      const Y_OFFSET  = 0;
 
-      // left/right – NOT mirrored here
       const rawX = canvas.width / 2 + ndx * canvas.width * H_GAIN + X_OFFSET;
-
-      // look up → dot up
       const rawY = canvas.height / 2 - (ndy - V_NEUTRAL) * canvas.height * V_GAIN - Y_OFFSET;
 
       targetX = Math.max(0, Math.min(canvas.width,  rawX));
@@ -170,8 +184,8 @@ async function render() {
     targetY = canvas.height / 2;
   }
 
-  // smooth
-  const SMOOTH = 0.25;
+  // 🟢 3) final cursor smoothing (make it heavier if still jittery)
+  const SMOOTH = 0.18;          // was 0.25 → lower = slower/smoother
   smoothX += (targetX - smoothX) * SMOOTH;
   smoothY += (targetY - smoothY) * SMOOTH;
 
