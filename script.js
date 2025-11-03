@@ -32,18 +32,42 @@ function playBeep(freq = 444, dur = 0.15) {
 
 // -----------------------------------------------------
 // camera
+// camera
 async function setupCamera() {
   video = document.getElementById("video");
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
   const stream = await navigator.mediaDevices.getUserMedia({
     video: {
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
+      width:  { ideal: vw, max: vw },
+      height: { ideal: vh, max: vh },
       facingMode: "user"
     }
   });
+
   video.srcObject = stream;
-  await new Promise(r => video.onloadedmetadata = r);
+  await new Promise(r => (video.onloadedmetadata = r));
+
+  // once we know the real video size, match canvases
+  resize();
 }
+
+// keep video/canvas pinned to browser size
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+
+  // video is already 100% via CSS, but set canvas explicitly
+  canvas.width = w;
+  canvas.height = h;
+
+  offCanvas.width = w;
+  offCanvas.height = h;
+}
+window.addEventListener("resize", resize);
+
 
 // -----------------------------------------------------
 // resize canvases to video
