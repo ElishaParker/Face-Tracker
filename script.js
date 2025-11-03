@@ -227,8 +227,8 @@ if (nose && leftIris && rightIris) {
   let ndy = (irisY - nose[1]) / faceH;
 
   // --- tuning knobs ---
-  const H_GAIN = 4.5;
-  const V_GAIN = 5.5;
+  const H_GAIN = 10;
+  const V_GAIN = 10;
 
   // raise / lower neutral vertical
   const V_NEUTRAL = -0.25;   // you can keep tweaking this
