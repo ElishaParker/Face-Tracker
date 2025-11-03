@@ -154,7 +154,7 @@ async function render() {
       const V_GAIN    = 6;    // ⬅️ stronger up/down
       const V_NEUTRAL = 0.0;   // we’re using Y_OFFSET instead
       const X_OFFSET  = 0;     // if dot is a bit left/right
-      const Y_OFFSET  = 170;   // ⬅️ bump neutral UP more
+      const Y_OFFSET  = 250;   // ⬅️ bump neutral UP more
 
       // left/right – NOT mirrored here
       const rawX = canvas.width / 2 + ndx * canvas.width * H_GAIN + X_OFFSET;
